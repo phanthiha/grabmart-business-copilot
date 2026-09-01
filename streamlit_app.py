@@ -38,7 +38,7 @@ with st.sidebar:
         "Danh sách công việc",
     ])
     st.divider()
-    st.link_button("Mở GrabMerchant Portal", "https://merchant.grab.com/", use_container_width=True)
+    st.link_button("Mở GrabMerchant Portal", "https://merchant.grab.com/", width="stretch")
 
 bundle = load_data(use_demo)
 sales = bundle["sales_daily"].copy()
@@ -79,9 +79,9 @@ if page == "Tổng quan kinh doanh":
 
     left, right = st.columns([1.7, 1])
     daily = sales.groupby("date", as_index=False).agg(gross_sales_vnd=("gross_sales_vnd", "sum"), transaction_count=("transaction_count", "sum"))
-    left.plotly_chart(px.line(daily, x="date", y="gross_sales_vnd", title="Doanh số theo ngày", markers=True), use_container_width=True)
+    left.plotly_chart(px.line(daily, x="date", y="gross_sales_vnd", title="Doanh số theo ngày", markers=True), width="stretch")
     hour = peak.groupby("hour", as_index=False).transaction_count.sum()
-    right.plotly_chart(px.bar(hour, x="hour", y="transaction_count", title="Giao dịch theo giờ", color_discrete_sequence=["#00B14F"]), use_container_width=True)
+    right.plotly_chart(px.bar(hour, x="hour", y="transaction_count", title="Giao dịch theo giờ", color_discrete_sequence=["#00B14F"]), width="stretch")
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Gini toàn danh mục", f"{gini(score.gross_revenue):.3f}")
@@ -95,11 +95,11 @@ elif page == "Danh mục ABC–XYZ":
     view = score if chosen_group == "Tất cả" else score[score.product_group.eq(chosen_group)]
     matrix = pd.crosstab(view.abc, view.xyz)
     left, right = st.columns([1, 1.4])
-    left.plotly_chart(px.imshow(matrix, text_auto=True, color_continuous_scale="Greens", title="Ma trận ABC–XYZ"), use_container_width=True)
+    left.plotly_chart(px.imshow(matrix, text_auto=True, color_continuous_scale="Greens", title="Ma trận ABC–XYZ"), width="stretch")
     priority = view.groupby("priority_label", as_index=False).agg(products=("product_name_current", "size"), revenue=("gross_revenue", "sum"))
-    right.plotly_chart(px.bar(priority, x="products", y="priority_label", orientation="h", color="priority_label", title="Mức ưu tiên rà soát"), use_container_width=True)
+    right.plotly_chart(px.bar(priority, x="products", y="priority_label", orientation="h", color="priority_label", title="Mức ưu tiên rà soát"), width="stretch")
     columns = ["product_name_current", "product_group", "price_segment", "gross_revenue", "units_sold", "selling_days", "abc", "xyz", "review_priority_score", "priority_label"]
-    st.dataframe(view[columns].sort_values(["review_priority_score", "gross_revenue"], ascending=[False, True]), use_container_width=True, hide_index=True)
+    st.dataframe(view[columns].sort_values(["review_priority_score", "gross_revenue"], ascending=[False, True]), width="stretch", hide_index=True)
     st.download_button("Tải danh sách sản phẩm", view[columns].to_csv(index=False).encode("utf-8-sig"), "product_review.csv", "text/csv")
     st.info("Điểm ưu tiên là công cụ sàng lọc. Sản phẩm có điểm cao không đồng nghĩa phải tự động xóa khỏi GrabMart.")
 
@@ -107,8 +107,8 @@ elif page == "Kiểm toán catalogue":
     st.header("Kiểm toán chất lượng catalogue")
     issues = catalogue_issues(score)
     left, right = st.columns([1.2, 1])
-    left.plotly_chart(px.bar(issues, x="Số sản phẩm", y="Vấn đề", orientation="h", color="Số sản phẩm", color_continuous_scale="Greens"), use_container_width=True)
-    right.dataframe(issues, use_container_width=True, hide_index=True)
+    left.plotly_chart(px.bar(issues, x="Số sản phẩm", y="Vấn đề", orientation="h", color="Số sản phẩm", color_continuous_scale="Greens"), width="stretch")
+    right.dataframe(issues, width="stretch", hide_index=True)
     issue_filter = st.selectbox("Danh sách cần xử lý", issues["Vấn đề"])
     masks = {
         "Trùng tên": score.duplicate_name,
@@ -119,7 +119,7 @@ elif page == "Kiểm toán catalogue":
         "Thiếu barcode": ~score.barcode_present_any.astype(bool),
     }
     audit = score.loc[masks[issue_filter], ["product_name_current", "product_group", "price_segment", "gross_revenue", "priority_label"]]
-    st.dataframe(audit, use_container_width=True, hide_index=True)
+    st.dataframe(audit, width="stretch", hide_index=True)
     st.download_button("Tải danh sách cần sửa", audit.to_csv(index=False).encode("utf-8-sig"), "catalogue_audit.csv", "text/csv")
 
 elif page == "MIWI & đánh giá khách hàng":
@@ -134,15 +134,15 @@ elif page == "MIWI & đánh giá khách hàng":
     cols[4].metric("MIWI Wrong", int(miwi.wrong_reported.sum()))
     left, right = st.columns(2)
     dist = reviews.groupby("rating", as_index=False).size()
-    left.plotly_chart(px.bar(dist, x="rating", y="size", title="Phân bố điểm đánh giá", color_discrete_sequence=["#00B14F"]), use_container_width=True)
+    left.plotly_chart(px.bar(dist, x="rating", y="size", title="Phân bố điểm đánh giá", color_discrete_sequence=["#00B14F"]), width="stretch")
     events = miwi_events.groupby(["hour", "disposition"], as_index=False).size()
-    right.plotly_chart(px.bar(events, x="hour", y="size", color="disposition", barmode="group", title="Sự cố MIWI theo giờ"), use_container_width=True)
+    right.plotly_chart(px.bar(events, x="hour", y="size", color="disposition", barmode="group", title="Sự cố MIWI theo giờ"), width="stretch")
     st.warning("Mẫu MIWI và Customer Review còn nhỏ; các kết quả chỉ dùng để phát hiện tín hiệu cần kiểm tra, không dùng để kết luận nhân quả.")
 
 else:
     st.header("Danh sách công việc ưu tiên")
     tasks = action_list(score, reviews, miwi)
-    st.dataframe(tasks, use_container_width=True, hide_index=True)
+    st.dataframe(tasks, width="stretch", hide_index=True)
     st.download_button("Tải danh sách công việc", tasks.to_csv(index=False).encode("utf-8-sig"), "action_list.csv", "text/csv")
     st.subheader("Quy trình sử dụng")
     st.markdown("""
@@ -155,4 +155,3 @@ else:
 
 st.divider()
 st.caption("Ứng dụng hỗ trợ quyết định; không tự động xóa sản phẩm, sửa giá, tạo khuyến mãi hoặc phản hồi khách hàng.")
-
