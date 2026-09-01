@@ -1,0 +1,39 @@
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+
+
+def gini(values) -> float:
+    x = np.sort(np.asarray(values, dtype=float))
+    if len(x) == 0 or x.sum() == 0:
+        return 0.0
+    ranks = np.arange(1, len(x) + 1)
+    return float(2 * np.sum(ranks * x) / (len(x) * x.sum()) - (len(x) + 1) / len(x))
+
+
+def catalogue_issues(score: pd.DataFrame) -> pd.DataFrame:
+    values = {
+        "Trùng tên": int(score["duplicate_name"].sum()),
+        "Trùng tên nhưng khác giá": int(score["duplicate_with_price_diff"].sum()),
+        "Thiếu mô tả": int(score["desc_missing_any"].sum()),
+        "Chỉ có một ảnh": int(score["photo_count_min"].eq(1).sum()),
+        "Thiếu SKU": int((~score["sku_present_any"].astype(bool)).sum()),
+        "Thiếu barcode": int((~score["barcode_present_any"].astype(bool)).sum()),
+    }
+    return pd.DataFrame({"Vấn đề": values.keys(), "Số sản phẩm": values.values()})
+
+
+def action_list(score: pd.DataFrame, reviews: pd.DataFrame, miwi: pd.DataFrame) -> pd.DataFrame:
+    high = int(score.priority_label.eq("High review priority").sum())
+    low_reply = float(reviews.loc[pd.to_numeric(reviews.rating).le(2), "has_reply"].mean()) if len(reviews) else 0
+    wrong = int(miwi.get("wrong_reported", pd.Series(dtype=int)).sum())
+    missing_sku = int((~score.sku_present_any.astype(bool)).sum())
+    return pd.DataFrame([
+        ["Cao", f"Rà soát {high} sản phẩm ưu tiên cao", "Điểm ưu tiên tổng hợp"],
+        ["Cao", f"Kiểm tra quy trình chuẩn bị {wrong} lượt giao sai", "MIWI Wrong"],
+        ["Trung bình", f"Bổ sung SKU cho {missing_sku} sản phẩm", "Kiểm toán catalogue"],
+        ["Trung bình", f"Nâng tỷ lệ trả lời đánh giá thấp, hiện {low_reply:.1%}", "Customer Review"],
+        ["Theo dõi", "Xác nhận vai trò mùa vụ của sản phẩm A–Z", "ABC–XYZ"],
+    ], columns=["Mức độ", "Công việc", "Căn cứ"])
+
