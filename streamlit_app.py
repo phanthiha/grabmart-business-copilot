@@ -28,6 +28,22 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+with st.expander("Giới thiệu dự án và quy trình thực hiện", expanded=True):
+    st.markdown("""
+Ứng dụng sử dụng **dữ liệu kinh doanh thực tế được xuất từ GrabMerchant** để hỗ trợ chủ cửa hàng phát hiện vấn đề và đưa ra quyết định dựa trên dữ liệu.
+
+**Quy trình thực hiện:**
+
+1. Thu thập, làm sạch và chuẩn hóa dữ liệu kinh doanh.
+2. Lưu trữ dữ liệu thành tám bảng trên **Google BigQuery**.
+3. Kết nối Streamlit với BigQuery bằng tài khoản dịch vụ chỉ có quyền đọc.
+4. Phân tích doanh số, giờ cao điểm, danh mục ABC–XYZ, chất lượng catalogue, khuyến mãi, MIWI và đánh giá khách hàng.
+5. Tạo danh sách công việc ưu tiên kèm căn cứ dữ liệu để chủ cửa hàng xác minh.
+6. Chủ cửa hàng đăng nhập **GrabMerchant chính thức** để thực hiện quyết định và theo dõi kết quả ở kỳ tiếp theo.
+
+Ứng dụng **không lưu mật khẩu Grab và không tự động thay đổi dữ liệu**; đây là công cụ hỗ trợ ra quyết định, còn quyết định cuối cùng thuộc về chủ cửa hàng.
+""")
+
 with st.sidebar:
     st.header("Điều khiển")
     use_demo = st.toggle("Dùng dữ liệu demo an toàn", value=False, help="Tự động bật nếu chưa cấu hình BigQuery secrets.")
