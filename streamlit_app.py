@@ -65,7 +65,7 @@ with st.sidebar:
         "Danh mục ABC–XYZ",
         "Kiểm toán catalogue",
         "MIWI & đánh giá khách hàng",
-        "Thực nghiệm bài báo",
+        "Phân tích thực nghiệm",
         "Khám phá bảng dữ liệu",
         "Danh sách công việc",
     ])
@@ -178,9 +178,9 @@ elif page == "MIWI & đánh giá khách hàng":
     right.plotly_chart(px.bar(events, x="hour", y="size", color="disposition", barmode="group", title="Sự cố MIWI theo giờ"), width="stretch")
     st.warning("Mẫu MIWI và Customer Review còn nhỏ; các kết quả chỉ dùng để phát hiện tín hiệu cần kiểm tra, không dùng để kết luận nhân quả.")
 
-elif page == "Thực nghiệm bài báo":
-    st.header("Tái lập đầy đủ thực nghiệm của bài báo")
-    st.caption("Phương pháp của bài báo được chạy lại trên bộ dữ liệu mở rộng 25/05–31/08/2026. Kết quả mới không bị ép trùng với giai đoạn 78 ngày của bản thảo.")
+elif page == "Phân tích thực nghiệm":
+    st.header("Phân tích thực nghiệm trên dữ liệu kinh doanh GrabMart")
+    st.caption("Thực nghiệm sử dụng tám bảng dữ liệu trong giai đoạn 25/05–31/08/2026 để đánh giá hiệu quả danh mục, chất lượng dữ liệu và các yếu tố liên quan đến khả năng ghi nhận bán hàng.")
     tabs = st.tabs([
         "1. Tập trung & tần suất",
         "2. Nhóm & giá",
