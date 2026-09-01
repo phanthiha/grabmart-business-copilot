@@ -36,6 +36,7 @@ with st.sidebar:
         "Danh mục ABC–XYZ",
         "Kiểm toán catalogue",
         "MIWI & đánh giá khách hàng",
+        "Khám phá bảng dữ liệu",
         "Danh sách công việc",
     ])
     st.divider()
@@ -141,6 +142,69 @@ elif page == "MIWI & đánh giá khách hàng":
     events = miwi_events.groupby(["hour", "disposition"], as_index=False).size()
     right.plotly_chart(px.bar(events, x="hour", y="size", color="disposition", barmode="group", title="Sự cố MIWI theo giờ"), width="stretch")
     st.warning("Mẫu MIWI và Customer Review còn nhỏ; các kết quả chỉ dùng để phát hiện tín hiệu cần kiểm tra, không dùng để kết luận nhân quả.")
+
+elif page == "Khám phá bảng dữ liệu":
+    st.header("Khám phá bảng dữ liệu BigQuery")
+    table_labels = {
+        "sales_daily": "Doanh số theo ngày",
+        "menu_sales": "Doanh số theo sản phẩm/menu",
+        "offers": "Chương trình khuyến mãi",
+        "peak_hours": "Giao dịch theo giờ",
+        "product_scoring": "Điểm và phân nhóm sản phẩm",
+        "miwi_item_breakdown": "Chi tiết MIWI theo sản phẩm",
+        "miwi_heatmap": "MIWI theo thời gian",
+        "customer_reviews": "Đánh giá khách hàng",
+    }
+    selected_table = st.selectbox(
+        "Chọn bảng",
+        list(bundle.tables),
+        format_func=lambda name: f"{table_labels.get(name, name)} ({name})",
+    )
+    raw_table = bundle.tables[selected_table].copy()
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Số dòng", f"{len(raw_table):,}")
+    c2.metric("Số cột", f"{len(raw_table.columns):,}")
+    missing_cells = int(raw_table.isna().sum().sum()) if not raw_table.empty else 0
+    total_cells = int(raw_table.shape[0] * raw_table.shape[1])
+    c3.metric("Tỷ lệ ô thiếu", f"{missing_cells / total_cells:.1%}" if total_cells else "0.0%")
+
+    search = st.text_input("Tìm trong dữ liệu", placeholder="Nhập tên sản phẩm, nhóm, trạng thái…")
+    filtered = raw_table
+    if search and not raw_table.empty:
+        text_columns = raw_table.select_dtypes(include=["object", "string", "category"]).columns
+        if len(text_columns):
+            mask = raw_table[text_columns].astype("string").apply(
+                lambda column: column.str.contains(search, case=False, na=False, regex=False)
+            ).any(axis=1)
+            filtered = raw_table.loc[mask]
+        else:
+            st.info("Bảng này không có cột văn bản để tìm kiếm.")
+
+    limit = st.slider("Số dòng hiển thị", 10, 500, 100, step=10)
+    st.caption(f"Đang hiển thị {min(len(filtered), limit):,}/{len(filtered):,} dòng phù hợp; bảng gốc có {len(raw_table):,} dòng.")
+    st.dataframe(filtered.head(limit), width="stretch", hide_index=True)
+    st.download_button(
+        "Tải dữ liệu đang lọc",
+        filtered.to_csv(index=False).encode("utf-8-sig"),
+        f"{selected_table}_filtered.csv",
+        "text/csv",
+    )
+
+    with st.expander("Cấu trúc và chất lượng cột"):
+        schema = pd.DataFrame({
+            "Tên cột": raw_table.columns,
+            "Kiểu dữ liệu": [str(dtype) for dtype in raw_table.dtypes],
+            "Số giá trị khác nhau": [raw_table[column].nunique(dropna=True) for column in raw_table.columns],
+            "Số ô thiếu": [int(raw_table[column].isna().sum()) for column in raw_table.columns],
+            "Tỷ lệ thiếu": [float(raw_table[column].isna().mean()) if len(raw_table) else 0 for column in raw_table.columns],
+        })
+        st.dataframe(
+            schema,
+            width="stretch",
+            hide_index=True,
+            column_config={"Tỷ lệ thiếu": st.column_config.ProgressColumn(format="percent", min_value=0, max_value=1)},
+        )
+    st.info("Màn hình này chỉ đọc dữ liệu. Việc sửa bảng nguồn phải được thực hiện qua quy trình ETL/BigQuery đã kiểm soát.")
 
 else:
     st.header("Trung tâm hành động")
