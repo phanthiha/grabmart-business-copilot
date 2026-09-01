@@ -1,11 +1,24 @@
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
 from src.data import load_data
 from src.metrics import action_list, catalogue_issues, gini
+from src.paper_experiments import (
+    assortment_performance,
+    concentration,
+    cramer_test,
+    duplicate_test,
+    frequency_bands,
+    logistic_cross_validation,
+    operational_extension,
+    promotion_summary,
+    quality_summary,
+    sensitivity,
+)
 
 
 st.set_page_config(page_title="GrabMart Business Copilot", page_icon="🛒", layout="wide")
@@ -52,6 +65,7 @@ with st.sidebar:
         "Danh mục ABC–XYZ",
         "Kiểm toán catalogue",
         "MIWI & đánh giá khách hàng",
+        "Thực nghiệm bài báo",
         "Khám phá bảng dữ liệu",
         "Danh sách công việc",
     ])
@@ -82,6 +96,11 @@ if "date" in sales:
 
 def money(value: float) -> str:
     return f"{value:,.0f} ₫"
+
+
+@st.cache_data(show_spinner="Đang chạy hồi quy logistic 5-fold...")
+def cached_logistic_cv(frame: pd.DataFrame) -> pd.DataFrame:
+    return logistic_cross_validation(frame)
 
 
 if page == "Tổng quan kinh doanh":
@@ -158,6 +177,107 @@ elif page == "MIWI & đánh giá khách hàng":
     events = miwi_events.groupby(["hour", "disposition"], as_index=False).size()
     right.plotly_chart(px.bar(events, x="hour", y="size", color="disposition", barmode="group", title="Sự cố MIWI theo giờ"), width="stretch")
     st.warning("Mẫu MIWI và Customer Review còn nhỏ; các kết quả chỉ dùng để phát hiện tín hiệu cần kiểm tra, không dùng để kết luận nhân quả.")
+
+elif page == "Thực nghiệm bài báo":
+    st.header("Tái lập đầy đủ thực nghiệm của bài báo")
+    st.caption("Phương pháp của bài báo được chạy lại trên bộ dữ liệu mở rộng 25/05–31/08/2026. Kết quả mới không bị ép trùng với giai đoạn 78 ngày của bản thảo.")
+    tabs = st.tabs([
+        "1. Tập trung & tần suất",
+        "2. Nhóm & giá",
+        "3. Chất lượng dữ liệu",
+        "4. Khuyến mãi",
+        "5. Kiểm định & mô hình",
+        "6. MIWI & Review",
+    ])
+    with tabs[0]:
+        st.subheader("Mức sử dụng danh mục và độ tập trung doanh thu")
+        st.dataframe(concentration(score), width="stretch", hide_index=True)
+        bands = frequency_bands(score)
+        st.subheader("Tần suất bán và vận tốc")
+        st.dataframe(bands, width="stretch", hide_index=True, column_config={
+            "Tỷ trọng sản phẩm": st.column_config.NumberColumn(format="percent"),
+            "Tỷ trọng số lượng": st.column_config.NumberColumn(format="percent"),
+            "Tỷ trọng doanh thu": st.column_config.NumberColumn(format="percent"),
+        })
+        left, right = st.columns(2)
+        left.plotly_chart(px.bar(bands, x="Dải ngày bán", y="Sản_phẩm", title="Sản phẩm theo dải ngày bán"), width="stretch")
+        right.plotly_chart(px.bar(bands, x="Dải ngày bán", y="Tỷ trọng doanh thu", title="Tỷ trọng doanh thu theo dải ngày bán"), width="stretch")
+        st.subheader("Phân tích độ nhạy của ngưỡng ngày bán")
+        st.dataframe(sensitivity(score), width="stretch", hide_index=True, column_config={
+            "Tỷ trọng sản phẩm đã bán": st.column_config.NumberColumn(format="percent"),
+            "Tỷ trọng doanh thu": st.column_config.NumberColumn(format="percent"),
+        })
+        st.subheader("Kết quả ABC–XYZ và điểm ưu tiên")
+        abcxyz = score.groupby(["abc", "xyz", "priority_label"], as_index=False).agg(
+            products=("product_name_current", "size"), gross_revenue=("gross_revenue", "sum"), units_sold=("units_sold", "sum")
+        )
+        st.dataframe(abcxyz, width="stretch", hide_index=True)
+        sold_score = score.loc[score.recorded_sales.astype(bool)].copy()
+        sold_score["sales_velocity"] = sold_score.units_sold / sold_score.selling_days.replace(0, np.nan)
+        sold_score["revenue_velocity"] = sold_score.gross_revenue / sold_score.selling_days.replace(0, np.nan)
+        v1, v2, v3 = st.columns(3)
+        v1.metric("Trung vị ngày bán", f"{sold_score.selling_days.median():.1f} ngày")
+        v2.metric("Trung vị tốc độ bán", f"{sold_score.sales_velocity.median():.2f} SP/ngày bán")
+        v3.metric("Trung vị doanh thu/ngày bán", money(float(sold_score.revenue_velocity.median())))
+        managerial = score.groupby("managerial_class", as_index=False).agg(
+            products=("product_name_current", "size"), gross_revenue=("gross_revenue", "sum"), units_sold=("units_sold", "sum")
+        )
+        managerial["product_share"] = managerial.products / managerial.products.sum()
+        managerial["revenue_share"] = managerial.gross_revenue / managerial.gross_revenue.sum()
+        st.subheader("Phân lớp quản trị kết hợp doanh thu và tần suất")
+        st.dataframe(managerial, width="stretch", hide_index=True)
+
+    with tabs[1]:
+        category = assortment_performance(score, "product_group")
+        price = assortment_performance(score, "price_segment")
+        st.subheader("Hiệu suất theo nhóm sản phẩm")
+        st.dataframe(category, width="stretch", hide_index=True)
+        st.plotly_chart(px.bar(category, x="product_group", y="recorded_sales_rate", title="Tỷ lệ sản phẩm có bán theo nhóm"), width="stretch")
+        st.subheader("Hiệu suất theo phân khúc giá")
+        st.dataframe(price, width="stretch", hide_index=True)
+        st.plotly_chart(px.bar(price, x="price_segment", y="recorded_sales_rate", title="Tỷ lệ sản phẩm có bán theo phân khúc giá"), width="stretch")
+        cell = score.groupby(["product_group", "price_segment"], as_index=False).agg(
+            active_products=("product_name_current", "size"), products_with_sales=("recorded_sales", "sum")
+        )
+        cell["recorded_sales_rate"] = cell.products_with_sales / cell.active_products
+        matrix = cell.pivot(index="product_group", columns="price_segment", values="recorded_sales_rate")
+        st.subheader("Ma trận nhóm sản phẩm × phân khúc giá")
+        st.plotly_chart(px.imshow(matrix, text_auto=".1%", color_continuous_scale="Greens", aspect="auto"), width="stretch")
+        st.dataframe(cell, width="stretch", hide_index=True)
+
+    with tabs[2]:
+        st.subheader("Kiểm toán dữ liệu catalogue")
+        st.dataframe(quality_summary(score), width="stretch", hide_index=True, column_config={"Tỷ lệ": st.column_config.NumberColumn(format="percent")})
+        st.dataframe(score[[
+            "product_name_current", "product_group", "duplicate_name", "duplicate_with_price_diff",
+            "desc_missing_any", "photo_count_min", "sku_present_any", "barcode_present_any", "review_priority_score"
+        ]].sort_values("review_priority_score", ascending=False), width="stretch", hide_index=True)
+
+    with tabs[3]:
+        promo, by_offer = promotion_summary(offers, bundle["sales_daily"])
+        st.subheader("Cường độ khuyến mãi")
+        st.dataframe(promo, width="stretch", hide_index=True)
+        st.subheader("Chương trình theo mức chi")
+        st.dataframe(by_offer, width="stretch", hide_index=True)
+        st.warning("Doanh thu gán cho các offer có thể chồng lặp. Không cộng các chương trình để suy ra doanh thu tăng thêm và không diễn giải như quan hệ nhân quả.")
+
+    with tabs[4]:
+        tests = pd.DataFrame([
+            cramer_test(score, "product_group"),
+            cramer_test(score, "price_segment"),
+            duplicate_test(score),
+        ])
+        st.subheader("Kiểm định Chi-square và Cramér’s V")
+        st.dataframe(tests, width="stretch", hide_index=True)
+        st.subheader("Hồi quy logistic khám phá — 5-fold cross-validation")
+        cv = cached_logistic_cv(score)
+        st.dataframe(cv, width="stretch", hide_index=True)
+        st.caption(f"Tỷ lệ nền sản phẩm có bán: {score.recorded_sales.mean():.1%}. Mô hình dùng nhóm sản phẩm, phân khúc giá và sáu cờ chất lượng dữ liệu; kết quả chỉ thể hiện liên hệ, không chứng minh nhân quả.")
+
+    with tabs[5]:
+        st.subheader("Phân tích vận hành mở rộng")
+        st.dataframe(operational_extension(miwi, reviews), width="stretch", hide_index=True)
+        st.warning("MIWI và Customer Review có cỡ mẫu nhỏ, chỉ dùng mô tả tín hiệu vận hành. Thông tin nhận dạng khách hàng không được hiển thị trong phần thực nghiệm.")
 
 elif page == "Khám phá bảng dữ liệu":
     st.header("Khám phá bảng dữ liệu BigQuery")

@@ -9,6 +9,7 @@
 - Kiểm toán trùng tên, mô tả, ảnh, SKU và barcode.
 - Phân tích MIWI Missing/Wrong và Customer Review.
 - Khám phá tám bảng dữ liệu: xem kích thước, cấu trúc cột, tỷ lệ thiếu, tìm kiếm và tải dữ liệu đã lọc.
+- Tái lập đầy đủ thực nghiệm bài báo trên giai đoạn mở rộng: tập trung doanh thu, tần suất, ABC–XYZ, hiệu suất nhóm/giá, chất lượng dữ liệu, khuyến mãi, Chi-square/Cramér’s V, hồi quy logistic cross-validation và phân tích độ nhạy.
 - Trung tâm hành động có căn cứ dữ liệu, khu vực thao tác, trạng thái xử lý và tệp CSV bàn giao.
 - Liên kết mở GrabMerchant chính thức để chủ cửa hàng đăng nhập, xác minh và tự duyệt thay đổi.
 
