@@ -17,6 +17,7 @@ st.markdown("""
 .hero {background:linear-gradient(120deg,#003d29,#00b14f); color:white; padding:24px 28px; border-radius:18px; margin-bottom:18px;}
 .hero h1 {margin:0 0 6px 0; font-size:2rem;}
 .hero p {margin:0; opacity:.92;}
+.workflow {background:#f3faf6; border-left:5px solid #00b14f; padding:14px 18px; border-radius:10px; margin:8px 0 18px;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -38,7 +39,9 @@ with st.sidebar:
         "Danh sách công việc",
     ])
     st.divider()
-    st.link_button("Mở GrabMerchant Portal", "https://merchant.grab.com/", width="stretch")
+    st.markdown("**Thực hiện quyết định**")
+    st.caption("Ứng dụng phân tích dữ liệu; GrabMerchant là nơi xác nhận và thực hiện thay đổi.")
+    st.link_button("Mở GrabMerchant chính thức ↗", "https://merchant.grab.com/", width="stretch")
 
 bundle = load_data(use_demo)
 sales = bundle["sales_daily"].copy()
@@ -140,18 +143,48 @@ elif page == "MIWI & đánh giá khách hàng":
     st.warning("Mẫu MIWI và Customer Review còn nhỏ; các kết quả chỉ dùng để phát hiện tín hiệu cần kiểm tra, không dùng để kết luận nhân quả.")
 
 else:
-    st.header("Danh sách công việc ưu tiên")
-    tasks = action_list(score, reviews, miwi)
-    st.dataframe(tasks, width="stretch", hide_index=True)
-    st.download_button("Tải danh sách công việc", tasks.to_csv(index=False).encode("utf-8-sig"), "action_list.csv", "text/csv")
-    st.subheader("Quy trình sử dụng")
+    st.header("Trung tâm hành động")
     st.markdown("""
-1. Kiểm tra bằng chứng trên dashboard.
-2. Xác nhận vai trò mùa vụ hoặc chiến lược của sản phẩm.
-3. Chỉnh catalogue hoặc vận hành trên GrabMerchant Portal.
-4. Ghi nhận hành động đã thực hiện.
-5. Theo dõi chỉ tiêu trong kỳ dữ liệu tiếp theo.
+<div class="workflow">
+  <b>Quy trình:</b> BigQuery cung cấp dữ liệu → ứng dụng phát hiện vấn đề và đề xuất →
+  chủ cửa hàng xác minh → thực hiện trên GrabMerchant → theo dõi kết quả ở kỳ tiếp theo.
+</div>
+""", unsafe_allow_html=True)
+    tasks = action_list(score, reviews, miwi)
+    edited_tasks = st.data_editor(
+        tasks,
+        width="stretch",
+        hide_index=True,
+        disabled=["Mã", "Mức độ", "Công việc đề xuất", "Căn cứ dữ liệu", "Khu vực GrabMerchant"],
+        column_config={
+            "Trạng thái": st.column_config.SelectboxColumn(
+                "Trạng thái",
+                options=["Chưa thực hiện", "Đang xác minh", "Đã thực hiện", "Không áp dụng"],
+                required=True,
+            )
+        },
+        key="action_editor",
+    )
+    done = int(edited_tasks["Trạng thái"].isin(["Đã thực hiện", "Không áp dụng"]).sum())
+    c1, c2, c3 = st.columns([1, 1, 1.4])
+    c1.metric("Tổng công việc", len(edited_tasks))
+    c2.metric("Đã xử lý", f"{done}/{len(edited_tasks)}")
+    c3.link_button("Đăng nhập GrabMerchant để thực hiện ↗", "https://merchant.grab.com/", width="stretch")
+    st.download_button(
+        "Tải danh sách hành động đã cập nhật",
+        edited_tasks.to_csv(index=False).encode("utf-8-sig"),
+        "grabmart_action_register.csv",
+        "text/csv",
+    )
+    with st.expander("Hướng dẫn thực hiện và kiểm chứng", expanded=True):
+        st.markdown("""
+1. Mở dashboard tương ứng để kiểm tra căn cứ dữ liệu.
+2. Xác minh yếu tố mùa vụ, tồn kho và chiến lược kinh doanh trước khi quyết định.
+3. Mở GrabMerchant chính thức; đăng nhập trực tiếp với Grab và thực hiện tại khu vực được gợi ý.
+4. Quay lại ứng dụng, cập nhật **Trạng thái** rồi tải tệp CSV để lưu bằng chứng.
+5. Nạp dữ liệu kỳ tiếp theo vào BigQuery và so sánh chỉ tiêu trước–sau.
 """)
+    st.info("Ứng dụng không yêu cầu hoặc lưu mật khẩu Grab. Phiên đăng nhập và mọi thay đổi nghiệp vụ chỉ diễn ra trên cổng GrabMerchant chính thức.")
 
 st.divider()
 st.caption("Ứng dụng hỗ trợ quyết định; không tự động xóa sản phẩm, sửa giá, tạo khuyến mãi hoặc phản hồi khách hàng.")

@@ -29,11 +29,11 @@ def action_list(score: pd.DataFrame, reviews: pd.DataFrame, miwi: pd.DataFrame) 
     low_reply = float(reviews.loc[pd.to_numeric(reviews.rating).le(2), "has_reply"].mean()) if len(reviews) else 0
     wrong = int(miwi.get("wrong_reported", pd.Series(dtype=int)).sum())
     missing_sku = int((~score.sku_present_any.astype(bool)).sum())
-    return pd.DataFrame([
-        ["Cao", f"Rà soát {high} sản phẩm ưu tiên cao", "Điểm ưu tiên tổng hợp"],
-        ["Cao", f"Kiểm tra quy trình chuẩn bị {wrong} lượt giao sai", "MIWI Wrong"],
-        ["Trung bình", f"Bổ sung SKU cho {missing_sku} sản phẩm", "Kiểm toán catalogue"],
-        ["Trung bình", f"Nâng tỷ lệ trả lời đánh giá thấp, hiện {low_reply:.1%}", "Customer Review"],
-        ["Theo dõi", "Xác nhận vai trò mùa vụ của sản phẩm A–Z", "ABC–XYZ"],
-    ], columns=["Mức độ", "Công việc", "Căn cứ"])
-
+    rows = [
+        ["ACT-01", "Cao", f"Rà soát {high} sản phẩm ưu tiên cao", "Điểm ưu tiên tổng hợp", "Danh mục/Menu", "Chưa thực hiện"],
+        ["ACT-02", "Cao", f"Kiểm tra quy trình chuẩn bị {wrong} lượt giao sai", "MIWI Wrong", "Đơn hàng/Vận hành", "Chưa thực hiện"],
+        ["ACT-03", "Trung bình", f"Bổ sung SKU cho {missing_sku} sản phẩm", "Kiểm toán catalogue", "Danh mục/Menu", "Chưa thực hiện"],
+        ["ACT-04", "Trung bình", f"Nâng tỷ lệ trả lời đánh giá thấp, hiện {low_reply:.1%}", "Customer Review", "Đánh giá khách hàng", "Chưa thực hiện"],
+        ["ACT-05", "Theo dõi", "Xác nhận vai trò mùa vụ của sản phẩm A–Z", "ABC–XYZ", "Danh mục/Menu", "Chưa thực hiện"],
+    ]
+    return pd.DataFrame(rows, columns=["Mã", "Mức độ", "Công việc đề xuất", "Căn cứ dữ liệu", "Khu vực GrabMerchant", "Trạng thái"])

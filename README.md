@@ -8,10 +8,12 @@
 - Ma trận ABC–XYZ và danh sách sản phẩm cần ưu tiên rà soát.
 - Kiểm toán trùng tên, mô tả, ảnh, SKU và barcode.
 - Phân tích MIWI Missing/Wrong và Customer Review.
-- Sinh danh sách công việc quản trị và tải kết quả CSV.
-- Liên kết mở GrabMerchant Portal để chủ cửa hàng tự duyệt thay đổi.
+- Trung tâm hành động có căn cứ dữ liệu, khu vực thao tác, trạng thái xử lý và tệp CSV bàn giao.
+- Liên kết mở GrabMerchant chính thức để chủ cửa hàng đăng nhập, xác minh và tự duyệt thay đổi.
 
 Ứng dụng không đăng nhập tự động, không thu thập dữ liệu bằng scraping và không tự động thay đổi thông tin trên GrabMerchant.
+
+Luồng vận hành: `BigQuery → phân tích trên Streamlit → xác minh của chủ cửa hàng → thao tác trên GrabMerchant → đo lường kỳ tiếp theo`.
 
 ## Chạy cục bộ
 
@@ -50,4 +52,3 @@ plasma-renderer-507213-p8.grabmart_business
 - Không lưu tên khách hàng, Order ID hoặc mật khẩu Grab trong mã nguồn.
 - Chỉ cấp cho service account quyền đọc các bảng cần thiết.
 - Nên triển khai ứng dụng ở chế độ private khi dùng dữ liệu thật.
-
