@@ -41,6 +41,13 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+shop_intro, shop_action = st.columns([2.4, 1])
+with shop_intro:
+    st.markdown("**Trải nghiệm cửa hàng thực tế trên GrabMart**")
+    st.caption("Tham khảo danh mục sản phẩm đang phục vụ khách hàng trên ứng dụng Grab.")
+with shop_action:
+    st.link_button("🛍️ Xem cửa hàng trên GrabMart ↗", "https://r.grab.com/o/NbQzAJVn", width="stretch")
+
 with st.expander("Giới thiệu dự án và quy trình thực hiện", expanded=True):
     st.markdown("""
 Ứng dụng sử dụng **dữ liệu kinh doanh thực tế được xuất từ GrabMerchant** để hỗ trợ chủ cửa hàng phát hiện vấn đề và đưa ra quyết định dựa trên dữ liệu.

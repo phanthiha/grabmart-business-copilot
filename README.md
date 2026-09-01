@@ -15,6 +15,8 @@
 
 Ứng dụng không đăng nhập tự động, không thu thập dữ liệu bằng scraping và không tự động thay đổi thông tin trên GrabMerchant.
 
+Liên kết trải nghiệm cửa hàng trên GrabMart: `https://r.grab.com/o/NbQzAJVn`.
+
 Luồng vận hành: `BigQuery → phân tích trên Streamlit → xác minh của chủ cửa hàng → thao tác trên GrabMerchant → đo lường kỳ tiếp theo`.
 
 ## Chạy cục bộ
