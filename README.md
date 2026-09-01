@@ -42,6 +42,19 @@ Dataset mặc định:
 plasma-renderer-507213-p8.grabmart_business
 ```
 
+## Notebook kiểm chứng kết quả
+
+Notebook [`notebooks/BigData_GrabMart_Reproducible_Analysis.ipynb`](notebooks/BigData_GrabMart_Reproducible_Analysis.ipynb) thực hiện tuần tự:
+
+1. Xác thực tài khoản Google trên Colab.
+2. Đọc tám bảng từ BigQuery.
+3. Tính KPI, Gini, ABC–XYZ, hiệu quả nhóm và giá.
+4. Chạy Chi-square và Cramér's V trực tiếp từ dữ liệu.
+5. Chạy hồi quy logistic cross-validation 5-fold.
+6. Sinh các bảng, biểu đồ và xuất bảng đối chiếu ra CSV.
+
+[Mở notebook trực tiếp trên Google Colab](https://colab.research.google.com/github/phanthiha/grabmart-business-copilot/blob/main/notebooks/BigData_GrabMart_Reproducible_Analysis.ipynb)
+
 ## Triển khai Streamlit Community Cloud
 
 1. Đưa mã nguồn lên GitHub.
