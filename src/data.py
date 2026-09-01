@@ -38,7 +38,10 @@ def _client() -> tuple[bigquery.Client, str, str]:
     if account:
         credentials = service_account.Credentials.from_service_account_info(dict(account))
         return bigquery.Client(project=project, credentials=credentials), project, dataset
-    return bigquery.Client(project=project), project, dataset
+    raise RuntimeError(
+        "Chưa cấu hình gcp_service_account trong Streamlit secrets; "
+        "ứng dụng sẽ sử dụng dữ liệu demo an toàn."
+    )
 
 
 @st.cache_data(ttl=900, show_spinner="Đang đọc dữ liệu từ BigQuery...")
@@ -116,4 +119,3 @@ def load_data(use_demo: bool) -> DataBundle:
         with st.expander("Chi tiết kỹ thuật"):
             st.code(str(exc))
         return load_demo()
-
