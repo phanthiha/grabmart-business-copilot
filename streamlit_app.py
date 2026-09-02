@@ -16,6 +16,7 @@ from src.grab_catalogue import (
 )
 from src.data import load_data
 from src.metrics import action_list, catalogue_issues, gini
+from src.menu_sales import combine_menu_sales, period_comparison, preparation_board, price_changes, product_performance
 from src.paper_experiments import (
     assortment_performance,
     concentration,
@@ -125,6 +126,7 @@ with st.sidebar:
         "Tổng quan kinh doanh",
         "Danh mục ABC–XYZ",
         "Kiểm toán catalogue",
+        "Phân tích Menu Sales",
         "MIWI & đánh giá khách hàng",
         "Phân tích thực nghiệm",
         "Khám phá bảng dữ liệu",
@@ -351,6 +353,91 @@ elif page == "Kiểm toán catalogue":
                                         st.download_button("Tải ZIP cập nhật GrabMerchant", updated_zip, f"{stem}_updated.zip", "application/zip", type="primary")
                                         st.download_button("Tải nhật ký thay đổi", change_log.to_csv(index=False).encode("utf-8-sig"), f"{stem}_change_log.csv", "text/csv")
                                         st.info("Tải ZIP lên GrabMerchant tại Thực đơn → Cập nhật hàng loạt → Chỉnh sửa món hàng loạt. Chỉ nhấn Áp dụng sau khi Grab kiểm tra thành công.")
+
+elif page == "Phân tích Menu Sales":
+    st.header("Phân tích Menu Sales và chuẩn bị hoa theo mẫu")
+    st.caption("Tải một hoặc nhiều báo cáo Menu Sales. Ứng dụng tự nhận diện tiêu đề Việt/Anh, phát hiện chồng lặp và không cộng trùng dữ liệu.")
+    if not authorized:
+        st.warning("Vui lòng đăng nhập bằng tài khoản được cấp quyền để phân tích file kinh doanh thật.")
+    else:
+        sales_uploads = st.file_uploader("Tải các file Menu Sales CSV", type=["csv"], accept_multiple_files=True, key="menu_sales_uploads")
+        if sales_uploads:
+            try:
+                menu_result = combine_menu_sales([(file.name, file.getvalue()) for file in sales_uploads])
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                menu_data = menu_result.data
+                st.subheader("1. Kiểm tra nguồn và chống trùng")
+                st.dataframe(menu_result.files, width="stretch", hide_index=True, column_config={"Doanh thu": st.column_config.NumberColumn(format="%,.0f ₫")})
+                if not menu_result.overlaps.empty:
+                    st.dataframe(menu_result.overlaps, width="stretch", hide_index=True)
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Dòng sau chống trùng", f"{len(menu_data):,}")
+                c2.metric("Sản phẩm đã bán", f"{menu_data.item.nunique():,}")
+                c3.metric("Số lượng", f"{menu_data.units_sold.sum():,.0f}")
+                c4.metric("Doanh thu", money(float(menu_data.gross_sales_vnd.sum())))
+
+                overview_tab, product_tab, prep_tab, quality_tab = st.tabs(["So sánh kỳ", "Hiệu quả sản phẩm", "Chuẩn bị theo mẫu", "Đối chiếu & chất lượng"])
+                with overview_tab:
+                    window = st.selectbox("Độ dài kỳ so sánh", [7, 14, 30], index=1, format_func=lambda value: f"{value} ngày")
+                    comparison, recent_start, recent_end = period_comparison(menu_data, window)
+                    st.dataframe(comparison, width="stretch", hide_index=True, column_config={"Doanh thu": st.column_config.NumberColumn(format="%,.0f ₫")})
+                    daily_menu = menu_data.groupby("date", as_index=False).agg(gross_sales_vnd=("gross_sales_vnd", "sum"), units_sold=("units_sold", "sum"), products=("item", "nunique"))
+                    st.plotly_chart(px.line(daily_menu, x="date", y="gross_sales_vnd", markers=True, title="Doanh thu Menu Sales theo ngày"), width="stretch")
+                    all_dates = pd.date_range(menu_data.date.min(), menu_data.date.max())
+                    missing_dates = all_dates.difference(menu_data.date.unique())
+                    if len(missing_dates):
+                        st.warning("Ngày không có dữ liệu: " + ", ".join(date.strftime("%d/%m/%Y") for date in missing_dates))
+
+                with product_tab:
+                    performance = product_performance(menu_data)
+                    search_product = st.text_input("Tìm sản phẩm", key="menu_product_search")
+                    if search_product:
+                        performance = performance[performance.item.str.contains(search_product, case=False, na=False, regex=False)]
+                    st.dataframe(performance, width="stretch", hide_index=True, column_config={
+                        "gross_sales_vnd": st.column_config.NumberColumn("Doanh thu", format="%,.0f ₫"),
+                        "average_selling_price": st.column_config.NumberColumn("Giá bán bình quân", format="%,.0f ₫"),
+                        "revenue_per_selling_day": st.column_config.NumberColumn("Doanh thu/ngày bán", format="%,.0f ₫"),
+                    })
+                    st.download_button("Tải bảng hiệu quả sản phẩm", performance.to_csv(index=False).encode("utf-8-sig"), "menu_product_performance.csv", "text/csv")
+
+                with prep_tab:
+                    prep = preparation_board(menu_data)
+                    suggestion = st.multiselect("Mức chuẩn bị", sorted(prep["Gợi ý chuẩn bị"].unique()), default=sorted(prep["Gợi ý chuẩn bị"].unique()))
+                    prep_view = prep[prep["Gợi ý chuẩn bị"].isin(suggestion)]
+                    st.dataframe(prep_view, width="stretch", hide_index=True, column_config={"gross_sales_vnd": st.column_config.NumberColumn("Doanh thu", format="%,.0f ₫")})
+                    st.info("Gợi ý dựa trên tần suất 7/14/30 ngày, chỉ hỗ trợ chuẩn bị nguyên liệu; chủ cửa hàng vẫn cần xét mùa vụ và đơn đặt trước.")
+                    st.download_button("Tải bảng chuẩn bị hoa", prep_view.to_csv(index=False).encode("utf-8-sig"), "flower_preparation_board.csv", "text/csv")
+
+                with quality_tab:
+                    changes = price_changes(menu_data)
+                    st.subheader("Sản phẩm có nhiều mức giá bán suy ra")
+                    st.dataframe(changes, width="stretch", hide_index=True, column_config={
+                        "minimum_price": st.column_config.NumberColumn(format="%,.0f ₫"), "maximum_price": st.column_config.NumberColumn(format="%,.0f ₫"),
+                        "latest_price": st.column_config.NumberColumn(format="%,.0f ₫"), "price_range": st.column_config.NumberColumn(format="%,.0f ₫"),
+                    })
+                    st.caption("Giá suy ra = doanh thu/số lượng; chênh lệch có thể do thay đổi giá hoặc cách Grab ghi nhận khuyến mãi.")
+                    catalogue_upload = st.file_uploader("Tùy chọn: tải ZIP catalogue mới nhất để đối chiếu tên", type=["zip"], key="sales_catalogue_zip")
+                    if catalogue_upload is not None:
+                        try:
+                            sales_package = read_grab_zip(catalogue_upload.getvalue())
+                        except ValueError as exc:
+                            st.error(str(exc))
+                        else:
+                            current_names = set(sales_package.products["*ItemName"].astype(str))
+                            reconciliation = product_performance(menu_data)
+                            reconciliation["Khớp catalogue hiện tại"] = reconciliation.item.isin(current_names)
+                            missing_current = reconciliation[~reconciliation["Khớp catalogue hiện tại"]]
+                            matched_revenue = reconciliation.loc[reconciliation["Khớp catalogue hiện tại"], "gross_sales_vnd"].sum()
+                            r1, r2, r3 = st.columns(3)
+                            r1.metric("Tên đã bán", f"{len(reconciliation):,}")
+                            r2.metric("Không khớp tên hiện tại", f"{len(missing_current):,}")
+                            r3.metric("Doanh thu khớp tên", f"{matched_revenue/reconciliation.gross_sales_vnd.sum():.1%}")
+                            st.dataframe(missing_current, width="stretch", hide_index=True)
+                            st.download_button("Tải danh sách cần ánh xạ tên", missing_current.to_csv(index=False).encode("utf-8-sig"), "menu_catalogue_name_reconciliation.csv", "text/csv")
+        else:
+            st.info("Bắt đầu bằng cách tải file Menu Sales mới nhất. Có thể chọn nhiều file cùng lúc; ứng dụng sẽ cảnh báo phần bị chồng lặp.")
 
 elif page == "MIWI & đánh giá khách hàng":
     st.header("Chất lượng thực hiện đơn và đánh giá khách hàng")
