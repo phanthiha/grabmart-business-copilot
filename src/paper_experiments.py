@@ -96,8 +96,8 @@ def quality_summary(score: pd.DataFrame) -> pd.DataFrame:
         ["Tên trùng nhưng khác giá", int(score.duplicate_with_price_diff.sum())],
         ["Thiếu mô tả", int(score.desc_missing_any.sum())],
         ["Chỉ có một ảnh", int(score.photo_count_min.eq(1).sum())],
-        ["Có SKU nội bộ", int(score.sku_present_any.sum())],
-        ["Có barcode", int(score.barcode_present_any.sum())],
+        ["Có SKU nội bộ (không bắt buộc)", int(score.sku_present_any.sum())],
+        ["Có barcode cần xác minh (không bắt buộc)", int(score.barcode_present_any.sum())],
     ]
     out = pd.DataFrame(values, columns=["Chỉ tiêu", "Số sản phẩm"])
     out["Tỷ lệ"] = out["Số sản phẩm"] / len(score) if len(score) else 0

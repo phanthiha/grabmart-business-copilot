@@ -209,6 +209,7 @@ elif page == "Kiểm toán catalogue":
     st.header("Kiểm toán chất lượng catalogue")
     analysis_tab, grab_tab = st.tabs(["Chỉ số phân tích", "Cập nhật hàng loạt GrabMerchant"])
     with analysis_tab:
+        st.info("Cửa hàng soạn hoa theo hình ảnh và quy cách mẫu. SKU và barcode không bắt buộc, vì vậy thiếu hai trường này không được xem là lỗi catalogue.")
         issues = catalogue_issues(score)
         left, right = st.columns([1.2, 1])
         left.plotly_chart(px.bar(issues, x="Số sản phẩm", y="Vấn đề", orientation="h", color="Số sản phẩm", color_continuous_scale="Greens"), width="stretch")
@@ -237,6 +238,7 @@ elif page == "Kiểm toán catalogue":
                     c3.metric("Danh mục", f"{products['*GrabCategoryName'].nunique():,}")
                     c4.metric("CSV nguồn", package.csv_name.split("_")[1] if "_" in package.csv_name else "Đã nhận")
                     st.success("ZIP hợp lệ; CSV, resources và images sẽ được bảo toàn khi xuất lại.")
+                    st.info("Đối với hoa thiết kế, để trống SKU/barcode là hợp lệ. Ứng dụng chỉ cảnh báo barcode đã nhập nhưng không đúng cấu trúc GTIN để chủ cửa hàng xóa hoặc xác minh trên bao bì.")
                     st.dataframe(summary, width="stretch", hide_index=True)
 
                     issue_filter = st.selectbox("2. Chọn danh sách cần xử lý", summary["Vấn đề"], key="grab_issue")
@@ -263,6 +265,7 @@ elif page == "Kiểm toán catalogue":
                                 "ItemID", "StoreID", "Issue", "DuplicateGroup",
                                 "CurrentItemName", "CurrentPrice", "CurrentCategory",
                                 "CurrentStatus", "CurrentDescription",
+                                "CurrentBarcode", "CurrentSKU",
                             ],
                             column_config={
                                 "Action": st.column_config.SelectboxColumn(
@@ -283,6 +286,14 @@ elif page == "Kiểm toán catalogue":
                                 ),
                                 "ProposedItemName": st.column_config.TextColumn("Tên mới", max_chars=80),
                                 "ProposedDescription": st.column_config.TextColumn("Mô tả mới", max_chars=300),
+                                "ProposedBarcode": st.column_config.TextColumn(
+                                    "Barcode mới",
+                                    help="Hoa làm theo mẫu không cần barcode. Để trống cột này để xóa mã không phù hợp.",
+                                ),
+                                "ProposedSKU": st.column_config.TextColumn(
+                                    "SKU mới",
+                                    help="SKU không bắt buộc đối với cửa hàng soạn hoa theo hình mẫu.",
+                                ),
                             },
                             key=f"grab_direct_editor_{issue_filter}",
                         )

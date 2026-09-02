@@ -17,6 +17,8 @@ EDITABLE_FIELDS = {
     "ProposedCategory": "*GrabCategoryName",
     "ProposedStatus": "*AvailableStatus",
     "ProposedDescription": "Description",
+    "ProposedBarcode": "BarcodeNumber",
+    "ProposedSKU": "SKUNumber",
 }
 VALID_ACTIONS = {"KEEP", "UPDATE", "HIDE", "DISCONTINUE", "REVIEW"}
 VALID_STATUSES = {"AVAILABLE", "UNAVAILABLE_TODAY", "UNAVAILABLE_PERMANENTLY", "HIDDEN"}
@@ -82,6 +84,18 @@ def _normal_name(value: str) -> str:
     return re.sub(r"\s+", " ", text)
 
 
+def _valid_gtin(value: str) -> bool:
+    value = str(value).strip()
+    if not re.fullmatch(r"\d{8}|\d{12}|\d{13}|\d{14}", value):
+        return False
+    digits = [int(character) for character in value]
+    weighted = sum(
+        (3 if (len(digits) - 1 - index) % 2 == 0 else 1) * digit
+        for index, digit in enumerate(digits[:-1])
+    )
+    return (10 - weighted % 10) % 10 == digits[-1]
+
+
 def catalogue_audit(products: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, pd.Series]]:
     names = products["*ItemName"].map(_normal_name)
     duplicate = names.ne("") & names.duplicated(keep=False)
@@ -89,14 +103,20 @@ def catalogue_audit(products: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, pd.
     descriptions = products["Description"].astype(str)
     photo_cols = [column for column in ("Photo1", "Photo2", "Photo3", "Photo4") if column in products]
     photo_count = products[photo_cols].apply(lambda row: row.astype(str).str.strip().ne("").sum(), axis=1)
+    primary_photo = products["Photo1"].astype(str).str.strip()
+    repeated_photo = primary_photo.ne("") & primary_photo.duplicated(keep=False)
+    photo_price_count = products.assign(_photo=primary_photo).groupby("_photo")["*Price"].transform("nunique")
+    barcode = products["BarcodeNumber"].astype(str).str.strip()
     masks = {
         "Trùng tên": duplicate,
         "Trùng tên nhưng khác giá": duplicate & price_count.gt(1),
         "Thiếu mô tả": descriptions.str.strip().eq(""),
         "Mô tả quá 300 ký tự": descriptions.str.len().gt(300),
+        "Không có ảnh mẫu": photo_count.eq(0),
         "Chỉ có một ảnh": photo_count.eq(1),
-        "Thiếu SKU": products["SKUNumber"].astype(str).str.strip().eq(""),
-        "Thiếu barcode": products["BarcodeNumber"].astype(str).str.strip().eq(""),
+        "Dùng cùng ảnh chính cho nhiều sản phẩm": repeated_photo,
+        "Cùng ảnh chính nhưng khác giá": repeated_photo & photo_price_count.gt(1),
+        "Barcode đã nhập nhưng không phải GTIN hợp lệ": barcode.ne("") & ~barcode.map(_valid_gtin),
         "Trạng thái cần rà soát": ~products["*AvailableStatus"].isin(VALID_STATUSES),
     }
     summary = pd.DataFrame({"Vấn đề": masks.keys(), "Số sản phẩm": [int(mask.sum()) for mask in masks.values()]})
@@ -122,6 +142,10 @@ def make_review_sheet(products: pd.DataFrame, mask: pd.Series, issue: str) -> pd
         "ProposedStatus": selected["*AvailableStatus"].values,
         "CurrentDescription": selected["Description"].values,
         "ProposedDescription": selected["Description"].values,
+        "CurrentBarcode": selected["BarcodeNumber"].values,
+        "ProposedBarcode": "" if issue.startswith("Barcode đã nhập") else selected["BarcodeNumber"].values,
+        "CurrentSKU": selected["SKUNumber"].values,
+        "ProposedSKU": selected["SKUNumber"].values,
         "ReviewNote": "",
         "StoreID": selected[STORE_ID].values,
     })
@@ -155,7 +179,11 @@ def validate_review(package: GrabMenuPackage, review: pd.DataFrame) -> pd.DataFr
         if action not in VALID_ACTIONS:
             errors.append({"Dòng": line, "ItemID": item_id, "Lỗi": f"Action không hợp lệ: {action}"})
         if action == "UPDATE":
-            if not row["ProposedItemName"].strip() or len(row["ProposedItemName"].strip()) > 80:
+            name_changed = row["ProposedItemName"].strip() != str(original["*ItemName"]).strip()
+            description_changed = row["ProposedDescription"] != str(original["Description"])
+            category_changed = row["ProposedCategory"].strip() != str(original["*GrabCategoryName"]).strip()
+            status_changed = row["ProposedStatus"].strip() != str(original["*AvailableStatus"]).strip()
+            if name_changed and (not row["ProposedItemName"].strip() or len(row["ProposedItemName"].strip()) > 80):
                 errors.append({"Dòng": line, "ItemID": item_id, "Lỗi": "Tên mới phải có 1–80 ký tự"})
             price = row["ProposedPrice"].strip()
             try:
@@ -163,11 +191,11 @@ def validate_review(package: GrabMenuPackage, review: pd.DataFrame) -> pd.DataFr
                     raise ValueError
             except ValueError:
                 errors.append({"Dòng": line, "ItemID": item_id, "Lỗi": "Giá mới phải là số dương, không kèm ký hiệu tiền tệ"})
-            if len(row["ProposedDescription"]) > 300:
+            if description_changed and len(row["ProposedDescription"]) > 300:
                 errors.append({"Dòng": line, "ItemID": item_id, "Lỗi": "Mô tả mới vượt quá 300 ký tự"})
-            if package.departments and row["ProposedCategory"].strip() not in package.departments:
+            if category_changed and package.departments and row["ProposedCategory"].strip() not in package.departments:
                 errors.append({"Dòng": line, "ItemID": item_id, "Lỗi": "Danh mục mới không có trong resources/department_list.csv"})
-            if row["ProposedStatus"].strip() not in VALID_STATUSES:
+            if status_changed and row["ProposedStatus"].strip() not in VALID_STATUSES:
                 errors.append({"Dòng": line, "ItemID": item_id, "Lỗi": "Trạng thái mới không hợp lệ"})
     duplicated = review["ItemID"].astype(str).str.strip().duplicated(keep=False)
     for _, row in review.loc[duplicated].iterrows():

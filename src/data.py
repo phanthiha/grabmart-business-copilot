@@ -122,6 +122,7 @@ def load_demo() -> DataBundle:
         "duplicate_name": rng.random(n) < .07,
         "duplicate_with_price_diff": rng.random(n) < .015,
         "desc_missing_any": rng.random(n) < .19,
+        "desc_long_any": rng.random(n) < .12,
         "photo_count_min": rng.integers(1, 5, n),
         "sku_present_any": rng.random(n) > .76,
         "barcode_present_any": rng.random(n) > .77,
