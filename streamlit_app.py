@@ -98,7 +98,8 @@ with st.sidebar:
 
     use_demo = st.toggle(
         "Dùng dữ liệu demo an toàn",
-        value=True,
+        # Khách công khai luôn ở demo; tài khoản đã xác thực mặc định vào dữ liệu thật.
+        value=not live_enabled,
         disabled=not live_enabled,
         help=(
             "Chỉ có thể tắt sau khi đăng nhập bằng tài khoản được cho phép và "
@@ -107,6 +108,10 @@ with st.sidebar:
     )
     if not live_enabled:
         st.caption("🔒 Dữ liệu thật đang bị khóa.")
+    elif use_demo:
+        st.caption("🧪 Đang xem dữ liệu demo; tắt công tắc để dùng BigQuery thật.")
+    else:
+        st.caption("✅ Đang sử dụng dữ liệu BigQuery thật đã giới hạn cột.")
     page = st.radio("Chức năng", [
         "Tổng quan kinh doanh",
         "Danh mục ABC–XYZ",
