@@ -28,14 +28,18 @@ pip install -r requirements.txt
 streamlit run streamlit_app.py
 ```
 
-Ứng dụng công khai mặc định và bắt buộc dùng dữ liệu demo tổng hợp. Dữ liệu thật chỉ được bật khi quản trị viên đặt `enable_live_data=true` trong Streamlit Secrets; truy vấn vẫn chỉ đọc danh sách cột an toàn trong `src/data.py`.
+Ứng dụng công khai mặc định dùng dữ liệu demo tổng hợp. Dữ liệu thật chỉ được bật khi người dùng đăng nhập Google bằng email nằm trong `allowed_emails` và quản trị viên đặt `enable_live_data=true` trong Streamlit Secrets; truy vấn vẫn chỉ đọc danh sách cột an toàn trong `src/data.py`.
 
 ## Kết nối BigQuery
 
 1. Sao chép `.streamlit/secrets.example.toml` thành `.streamlit/secrets.toml`.
 2. Điền thông tin service account có quyền đọc dataset.
 3. Không commit `secrets.toml` hoặc khóa JSON lên GitHub.
-4. Giữ `enable_live_data=false` cho bản demo công khai. Nếu cần bật dữ liệu thật, chỉ cấp tài khoản dịch vụ quyền BigQuery Job User và Data Viewer trên dataset/view an toàn; không cấp Owner/Admin.
+4. Tạo Google OAuth Web Client và khai báo redirect URI `https://grabmart-business-copilot.streamlit.app/oauth2callback`.
+5. Điền `[auth]`, `allowed_emails` và đặt `enable_live_data=true` trong Streamlit Secrets. Không đưa OAuth secret hoặc danh sách email được phép lên GitHub.
+6. Chỉ cấp tài khoản dịch vụ quyền BigQuery Job User và Data Viewer trên dataset/view an toàn; không cấp Owner/Admin.
+
+Luồng truy cập: khách công khai chỉ thấy demo → người dùng đăng nhập Google → ứng dụng đối chiếu email với allowlist riêng tư → tài khoản hợp lệ mới có thể chuyển sang dữ liệu BigQuery thật → đăng xuất để kết thúc phiên.
 
 Các trường `customer`, `review`, `reply`, `store_id`, `merchant`, `order_id` và `short_order_number` không được truy vấn hoặc tải xuống từ ứng dụng.
 

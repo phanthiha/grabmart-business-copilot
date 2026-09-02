@@ -67,20 +67,46 @@ with st.expander("Giới thiệu dự án và quy trình thực hiện", expande
 with st.sidebar:
     st.header("Điều khiển")
     try:
-        live_enabled = bool(st.secrets.get("enable_live_data", False))
+        live_enabled_by_admin = bool(st.secrets.get("enable_live_data", False))
+        allowed_emails = {
+            str(email).strip().lower()
+            for email in st.secrets.get("allowed_emails", [])
+        }
+        auth_configured = bool(st.secrets.get("auth"))
     except (FileNotFoundError, RuntimeError):
-        live_enabled = False
+        live_enabled_by_admin = False
+        allowed_emails = set()
+        auth_configured = False
+
+    logged_in = bool(auth_configured and st.user.is_logged_in)
+    user_email = str(st.user.get("email", "")).strip().lower() if logged_in else ""
+    authorized = bool(logged_in and user_email in allowed_emails)
+    live_enabled = bool(live_enabled_by_admin and authorized)
+
+    st.markdown("**Quyền truy cập dữ liệu thật**")
+    if not auth_configured:
+        st.caption("🔒 Chưa cấu hình Google OAuth; chỉ dùng dữ liệu demo.")
+    elif not logged_in:
+        st.button("Đăng nhập bằng Google", on_click=st.login, width="stretch")
+        st.caption("Đăng nhập chỉ dùng để xác minh quyền xem dữ liệu BigQuery.")
+    elif authorized:
+        st.success(f"Đã xác thực: {user_email}")
+        st.button("Đăng xuất", on_click=st.logout, width="stretch")
+    else:
+        st.error("Tài khoản này không được cấp quyền xem dữ liệu thật.")
+        st.button("Đăng xuất", on_click=st.logout, width="stretch")
+
     use_demo = st.toggle(
         "Dùng dữ liệu demo an toàn",
         value=True,
         disabled=not live_enabled,
         help=(
-            "Mặc định dùng dữ liệu demo. Chỉ có thể tắt khi quản trị viên đặt "
-            "enable_live_data=true trong Streamlit Secrets."
+            "Chỉ có thể tắt sau khi đăng nhập bằng tài khoản được cho phép và "
+            "quản trị viên đã bật enable_live_data trong Streamlit Secrets."
         ),
     )
     if not live_enabled:
-        st.caption("🔒 Chế độ công khai: dữ liệu thật đã bị khóa.")
+        st.caption("🔒 Dữ liệu thật đang bị khóa.")
     page = st.radio("Chức năng", [
         "Tổng quan kinh doanh",
         "Danh mục ABC–XYZ",
