@@ -616,6 +616,53 @@ elif page == "Tạo sản phẩm hàng loạt":
                 column_config={"Giá bán": st.column_config.NumberColumn(format="%,.0f ₫")},
             )
 
+        st.markdown("#### Nhật ký sản phẩm đã thao tác trong phiên")
+        touched_names = [
+            name for name in all_supplier_products["Tên sản phẩm"].astype(str)
+            if any(key[0] == name for key in image_store)
+        ]
+        globally_ready_names = {
+            str(row["Tên sản phẩm"])
+            for _, row in all_supplier_products.iterrows()
+            if str(row["Tình trạng tên"]) == "Đã chuẩn hóa"
+            and str(row["Mô tả"]).strip()
+            and float(row["Giá bán (₫)"]) > 0
+            and any((str(row["Tên sản phẩm"]), slot) in image_store for slot in range(1, 5))
+            and all(
+                len(image_store[(str(row["Tên sản phẩm"]), slot)]["content"]) <= 2 * 1024 * 1024
+                for slot in range(1, 5)
+                if (str(row["Tên sản phẩm"]), slot) in image_store
+            )
+        }
+        tracking_rows = []
+        if touched_names:
+            st.caption(
+                "Ứng dụng tự ghi nhận sản phẩm đã có ảnh. Sau khi tải ZIP lên GrabMerchant và bấm "
+                "**Thêm vào thực đơn**, hãy đánh dấu ô xác nhận tương ứng."
+            )
+            for name in touched_names:
+                count = sum((name, slot) in image_store for slot in range(1, 5))
+                applied = st.checkbox(
+                    f"{name} — {count}/4 ảnh — Đã áp dụng trên GrabMerchant",
+                    key=f"grab_applied_{name}",
+                    help="Chỉ đánh dấu sau khi GrabMerchant đã xử lý file và không báo lỗi.",
+                )
+                if applied:
+                    status = "✅ Đã xác nhận cập nhật trên Grab"
+                elif name in globally_ready_names:
+                    status = "🟢 Đã chuẩn bị xong trên ứng dụng"
+                else:
+                    status = "🟡 Đã thêm ảnh, cần kiểm tra tiếp"
+                tracking_rows.append({"Sản phẩm": name, "Ảnh đã lưu": f"{count}/4", "Trạng thái": status})
+            applied_count = sum(row["Trạng thái"].startswith("✅") for row in tracking_rows)
+            t1, t2, t3 = st.columns(3)
+            t1.metric("Đã thao tác trên ứng dụng", len(tracking_rows))
+            t2.metric("Đã chuẩn bị xong", sum(row["Trạng thái"].startswith(("🟢", "✅")) for row in tracking_rows))
+            t3.metric("Đã xác nhận trên Grab", applied_count)
+            st.dataframe(pd.DataFrame(tracking_rows), width="stretch", hide_index=True)
+        else:
+            st.info("Chưa có sản phẩm nào được thêm ảnh trong phiên này.")
+
         preview_products = [row for row in progress_rows if row["Ảnh"] != "0/4"]
         st.markdown("### Bước 5 — Xem trước gian hàng Grab")
         if not preview_products:
