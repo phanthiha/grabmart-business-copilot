@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import io
+
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -17,7 +20,7 @@ from src.grab_catalogue import (
 from src.data import load_data
 from src.metrics import action_list, catalogue_issues, gini
 from src.menu_sales import combine_menu_sales, period_comparison, preparation_board, price_changes, product_performance
-from src.supplier_products import build_create_items_zip, recalculate_prices, supplier_product_table
+from src.supplier_products import build_create_items_zip, recalculate_prices, safe_image_filename, supplier_product_table
 from src.paper_experiments import (
     assortment_performance,
     concentration,
@@ -443,24 +446,32 @@ elif page == "Phân tích Menu Sales":
 
 elif page == "Tạo sản phẩm hàng loạt":
     st.header("Tạo sản phẩm hoa hàng loạt từ bảng giá nhà cung cấp")
+    st.info(
+        "Quy trình đúng định dạng Grab: tải ZIP mẫu **Tạo món hàng loạt** mới nhất → "
+        "chọn và rà soát sản phẩm → tải ảnh hợp lệ → xuất ZIP → tải ZIP lên GrabMerchant "
+        "và chọn **Thêm vào thực đơn**."
+    )
+    st.markdown("[Xem hướng dẫn cập nhật hàng loạt chính thức của Grab ↗](https://help.grab.com/merchant/vi-vn/40001523)")
     st.warning("Giá gốc trong ảnh đang được hiểu theo nghìn đồng và chưa rõ đơn vị bó/cành. Phải xác nhận với vựa trước khi tải lên GrabMerchant.")
     if not authorized:
         st.warning("Vui lòng đăng nhập bằng tài khoản được cấp quyền để tạo gói sản phẩm thật.")
     else:
+        if "supplier_product_images" not in st.session_state:
+            st.session_state.supplier_product_images = {}
+        image_store = st.session_state.supplier_product_images
         multiplier = st.number_input("Hệ số giá bán", min_value=1.0, max_value=10.0, value=2.0, step=0.1, help="Giá bán = Giá gốc × Hệ số. Chưa bao gồm kiểm tra phí nền tảng và hao hụt.")
         base_supplier = supplier_product_table(multiplier)
         supplier_editor = st.data_editor(
             base_supplier,
             width="stretch",
             hide_index=True,
-            disabled=["Hệ số giá", "Giá bán (₫)", "Tìm ảnh tham chiếu"],
+            disabled=["Hệ số giá", "Giá bán (₫)", "Tìm ảnh tham chiếu", "Tên file ảnh 1", "Tên file ảnh 2", "Tên file ảnh 3", "Tên file ảnh 4"],
             column_config={
                 "Chọn tạo": st.column_config.CheckboxColumn(required=True),
                 "Giá gốc (₫)": st.column_config.NumberColumn(format="%,.0f ₫", min_value=0),
                 "Giá bán (₫)": st.column_config.NumberColumn(format="%,.0f ₫"),
                 "Tình trạng tên": st.column_config.SelectboxColumn(options=["Cần xác minh với vựa", "Đã chuẩn hóa"], required=True),
                 "Tìm ảnh tham chiếu": st.column_config.LinkColumn("Tìm ảnh tham chiếu", display_text="Mở tìm kiếm ảnh ↗"),
-                "Tên file ảnh": st.column_config.TextColumn(help="Ví dụ: delphinium_xanh.jpg; tên phải khớp file ảnh tải lên."),
             },
             key="supplier_product_editor",
         )
@@ -469,18 +480,78 @@ elif page == "Tạo sản phẩm hàng loạt":
         c1, c2, c3 = st.columns(3)
         c1.metric("Sản phẩm được chọn", f"{len(selected_supplier):,}")
         c2.metric("Chưa xác minh tên", f"{selected_supplier['Tình trạng tên'].eq('Cần xác minh với vựa').sum():,}")
-        c3.metric("Có tên file ảnh", f"{selected_supplier['Tên file ảnh'].astype(str).str.strip().ne('').sum():,}")
+        c3.metric("Ảnh đã lưu", f"{len(image_store):,}")
         st.download_button("Tải bảng sản phẩm dự thảo", supplier_editor.to_csv(index=False).encode("utf-8-sig"), "supplier_products_draft.csv", "text/csv")
 
         st.subheader("Ảnh sản phẩm")
         st.info("Liên kết tìm kiếm chỉ để nhận diện. Hãy tải lên ảnh do cửa hàng/vựa cung cấp hoặc ảnh có quyền sử dụng; không tự động sao chép ảnh Internet có bản quyền vào gian hàng.")
-        image_uploads = st.file_uploader("Tải ảnh JPG/JPEG/PNG đã được phép sử dụng", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="supplier_images")
-        image_map = {image.name: image.getvalue() for image in image_uploads or []}
+        st.caption("Mỗi sản phẩm có tối đa 4 ảnh. Có thể sao chép ảnh rồi bấm **Dán ảnh từ clipboard**, hoặc chọn file JPG/PNG. Ảnh dán được lưu PNG, tự đặt tên an toàn và giữ trong phiên làm việc hiện tại.")
+        selected_names = selected_supplier["Tên sản phẩm"].astype(str).tolist()
+        if selected_names:
+            image_product = st.selectbox("Chọn sản phẩm để thêm ảnh", selected_names, key="supplier_image_product")
+            try:
+                from streamlit_paste_button import paste_image_button
+            except ImportError:
+                paste_image_button = None
+            image_columns = st.columns(4)
+            for slot, image_column in enumerate(image_columns, start=1):
+                image_key = (image_product, slot)
+                with image_column:
+                    st.markdown(f"**Ảnh {slot}**")
+                    if paste_image_button is not None:
+                        pasted = paste_image_button(
+                            label="📋 Dán ảnh từ clipboard",
+                            background_color="#00B14F",
+                            hover_background_color="#008C3E",
+                            key=f"paste_{image_product}_{slot}",
+                            errors="raise",
+                        )
+                        if pasted.image_data is not None:
+                            buffer = io.BytesIO()
+                            pasted.image_data.convert("RGB").save(buffer, format="PNG", optimize=True)
+                            filename = safe_image_filename(image_product, slot, "png")
+                            pasted_bytes = buffer.getvalue()
+                            paste_digest = hashlib.sha256(pasted_bytes).hexdigest()
+                            digest_key = f"paste_digest_{image_product}_{slot}"
+                            if st.session_state.get(digest_key) != paste_digest:
+                                image_store[image_key] = {"filename": filename, "content": pasted_bytes}
+                                st.session_state[digest_key] = paste_digest
+                    uploaded = st.file_uploader(
+                        f"Hoặc chọn file ảnh {slot}",
+                        type=["jpg", "png"],
+                        key=f"product_image_{image_product}_{slot}",
+                        label_visibility="collapsed",
+                    )
+                    if uploaded is not None:
+                        extension = uploaded.name.rsplit(".", 1)[-1].lower()
+                        filename = safe_image_filename(image_product, slot, extension)
+                        image_store[image_key] = {"filename": filename, "content": uploaded.getvalue()}
+                    if image_key in image_store:
+                        stored = image_store[image_key]
+                        st.image(stored["content"], caption=stored["filename"], width="stretch")
+                        if len(stored["content"]) > 2 * 1024 * 1024:
+                            st.error("Ảnh vượt 2 MB; hãy giảm kích thước trước khi xuất ZIP.")
+                        if st.button("Xóa ảnh", key=f"remove_product_image_{image_product}_{slot}"):
+                            del image_store[image_key]
+                            st.rerun()
+        else:
+            st.warning("Hãy chọn ít nhất một sản phẩm trước khi thêm ảnh.")
+
+        selected_name_set = set(selected_names)
+        selected_image_store = {
+            key: item for key, item in image_store.items() if key[0] in selected_name_set
+        }
+        image_map = {item["filename"]: item["content"] for item in selected_image_store.values()}
+        for row_index, product in supplier_editor.iterrows():
+            product_name = str(product["Tên sản phẩm"])
+            for slot in range(1, 5):
+                stored = image_store.get((product_name, slot))
+                supplier_editor.at[row_index, f"Tên file ảnh {slot}"] = stored["filename"] if stored else ""
         if image_map:
-            st.caption("Đã nhận: " + ", ".join(image_map))
+            st.success(f"Đã lưu {len(image_map)} ảnh của {len({key[0] for key in selected_image_store}):,} sản phẩm đang chọn.")
 
         st.subheader("Xuất gói Tạo món hàng loạt")
-        st.caption("Trên GrabMerchant, chọn Tạo món hàng loạt và tải mẫu/gói hướng dẫn chính thức mới nhất, sau đó đưa nguyên ZIP đó vào đây.")
+        st.caption("Trên GrabMerchant, chọn Thực đơn → Cập nhật hàng loạt → Tạo món hàng loạt và tải mẫu ZIP mới nhất, sau đó đưa nguyên ZIP đó vào đây. Ứng dụng giữ nguyên dòng hướng dẫn, tên cột, readme và danh sách danh mục của mẫu.")
         create_template = st.file_uploader("Tải ZIP mẫu Tạo món hàng loạt của GrabMerchant", type=["zip"], key="grab_create_template")
         if create_template is not None:
             try:
@@ -492,7 +563,7 @@ elif page == "Tạo sản phẩm hàng loạt":
                 confirmed_create = st.checkbox("Tôi đã xác nhận tên, đơn vị mua, giá gốc, giá bán và quyền sử dụng ảnh", key="confirm_create_items")
                 if confirmed_create:
                     st.download_button("Tải ZIP Tạo món hàng loạt", create_zip, "grab_create_items_supplier_flowers.zip", "application/zip", type="primary")
-                    st.warning("Hãy thử trước 3–5 sản phẩm. Chỉ nhấn Áp dụng trên GrabMerchant sau khi trang kiểm tra không báo lỗi.")
+                    st.warning("Hãy tải thực đơn hiện tại để dự phòng và thử trước 3–5 sản phẩm. Grab không hỗ trợ hoàn tác cập nhật hàng loạt; chỉ xác nhận Thêm vào thực đơn khi trang kiểm tra không báo lỗi.")
 
 elif page == "MIWI & đánh giá khách hàng":
     st.header("Chất lượng thực hiện đơn và đánh giá khách hàng")

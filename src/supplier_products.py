@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import io
+import re
+import unicodedata
 import urllib.parse
 import zipfile
 
@@ -56,7 +58,10 @@ def supplier_product_table(multiplier: float = 2.0) -> pd.DataFrame:
             "Giá bán (₫)": int(round(cost_thousand * 1000 * multiplier)),
             "Danh mục Grab": "Hoa nguyên liệu / dụng cụ cắm hoa",
             "Mô tả": f"{name} dùng cắm hoa và trang trí. Hình ảnh mang tính minh họa; vui lòng xác nhận mẫu thực tế.",
-            "Tên file ảnh": "",
+            "Tên file ảnh 1": "",
+            "Tên file ảnh 2": "",
+            "Tên file ảnh 3": "",
+            "Tên file ảnh 4": "",
             "Tình trạng tên": "Đã chuẩn hóa" if confirmed else "Cần xác minh với vựa",
             "Tìm ảnh tham chiếu": "https://www.google.com/search?tbm=isch&q=" + urllib.parse.quote_plus(name + " hoa cắt cành"),
         })
@@ -71,6 +76,13 @@ def recalculate_prices(frame: pd.DataFrame, multiplier: float) -> pd.DataFrame:
     return output
 
 
+def safe_image_filename(product_name: str, slot: int, extension: str = "png") -> str:
+    """Tạo tên ảnh ASCII ổn định để CSV và ZIP luôn khớp nhau."""
+    plain = unicodedata.normalize("NFKD", product_name).encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^A-Za-z0-9]+", "_", plain).strip("_").lower() or "san_pham"
+    return f"{slug[:55]}_{slot}.{extension.lower()}"
+
+
 def _decode(raw: bytes) -> str:
     for encoding in ("utf-8-sig", "utf-8", "cp1258", "latin1"):
         try:
@@ -80,10 +92,22 @@ def _decode(raw: bytes) -> str:
     raise ValueError("Không đọc được CSV trong mẫu Grab.")
 
 
+def _zip_path_is_unsafe(name: str) -> bool:
+    parts = name.replace("\\", "/").split("/")
+    return name.startswith(("/", "\\")) or ".." in parts
+
+
+def _validate_image_name(name: str) -> None:
+    if not re.fullmatch(r"[A-Za-z0-9_-]+\.(?:jpg|png)", name, flags=re.IGNORECASE):
+        raise ValueError(
+            f"Tên ảnh '{name}' không hợp lệ. Chỉ dùng chữ không dấu, số, gạch dưới/gạch nối và đuôi .jpg hoặc .png."
+        )
+
+
 def build_create_items_zip(template_raw: bytes, products: pd.DataFrame, images: dict[str, bytes]) -> tuple[bytes, list[str]]:
     try:
         with zipfile.ZipFile(io.BytesIO(template_raw)) as archive:
-            unsafe = [n for n in archive.namelist() if n.startswith(("/", "\\")) or ".." in n.replace("\\", "/").split("/")]
+            unsafe = [n for n in archive.namelist() if _zip_path_is_unsafe(n)]
             if unsafe:
                 raise ValueError("Mẫu ZIP chứa đường dẫn không an toàn.")
             members = {name: archive.read(name) for name in archive.namelist() if not name.endswith("/")}
@@ -101,6 +125,19 @@ def build_create_items_zip(template_raw: bytes, products: pd.DataFrame, images: 
     if "*ItemID" in template.columns:
         raise ValueError("Đây có vẻ là mẫu Chỉnh sửa món vì có cột *ItemID. Hãy tải đúng mẫu Tạo món hàng loạt từ GrabMerchant.")
 
+    department_member = next(
+        (name for name in members if name.replace("\\", "/").lower() == "resources/department_list.csv"),
+        None,
+    )
+    if department_member is None:
+        raise ValueError("Mẫu thiếu resources/department_list.csv nên không thể kiểm tra danh mục Grab.")
+    departments = pd.read_csv(
+        io.StringIO(_decode(members[department_member])), dtype=str, keep_default_na=False
+    )
+    if "sub-department" not in departments.columns:
+        raise ValueError("Danh sách danh mục trong mẫu không có cột sub-department.")
+    valid_categories = set(departments["sub-department"].astype(str).str.strip())
+
     selected = products[products["Chọn tạo"].astype(bool)].copy()
     if selected.empty:
         raise ValueError("Chưa chọn sản phẩm nào để tạo.")
@@ -108,6 +145,20 @@ def build_create_items_zip(template_raw: bytes, products: pd.DataFrame, images: 
         raise ValueError("Tên sản phẩm hoặc giá bán chưa hợp lệ.")
     if selected["Tình trạng tên"].eq("Cần xác minh với vựa").any():
         raise ValueError("Còn sản phẩm chưa xác minh tên. Hãy bỏ chọn hoặc xác nhận tên trước.")
+    invalid_categories = sorted(
+        set(selected["Danh mục Grab"].astype(str).str.strip()).difference(valid_categories)
+    )
+    if invalid_categories:
+        raise ValueError(
+            "Danh mục không khớp resources/department_list.csv: " + ", ".join(invalid_categories)
+        )
+    if len(selected) > 20_000:
+        raise ValueError("GrabMerchant chỉ cho phép tối đa 20.000 món trong một lần cập nhật hàng loạt.")
+
+    for image_name, image_content in images.items():
+        _validate_image_name(image_name)
+        if len(image_content) > 2 * 1024 * 1024:
+            raise ValueError(f"Ảnh '{image_name}' vượt quá giới hạn 2 MB của Grab.")
 
     # Giữ dòng hướng dẫn đầu tiên của mẫu nếu có; xóa các dòng ví dụ phía sau.
     instruction = template.iloc[:1].copy()
@@ -118,8 +169,9 @@ def build_create_items_zip(template_raw: bytes, products: pd.DataFrame, images: 
         row["*ItemName"] = str(product["Tên sản phẩm"]).strip()
         row["*Price"] = str(int(product["Giá bán (₫)"]))
         row["*GrabCategoryName"] = str(product["Danh mục Grab"]).strip()
+        # Để trống để Grab tự dùng lịch bán mặc định của cửa hàng theo hướng dẫn chính thức.
         if "AvailabilitySchedule" in row:
-            row["AvailabilitySchedule"] = "All opening hours"
+            row["AvailabilitySchedule"] = ""
         if "*AvailableStatus" in row:
             row["*AvailableStatus"] = "AVAILABLE"
         if "Description" in row:
@@ -128,21 +180,30 @@ def build_create_items_zip(template_raw: bytes, products: pd.DataFrame, images: 
             row["BarcodeNumber"] = ""
         if "SKUNumber" in row:
             row["SKUNumber"] = ""
-        image_name = str(product["Tên file ảnh"]).strip()
-        if "Photo1" in row and image_name:
-            if image_name not in images:
-                missing_images.append(image_name)
-            else:
-                row["Photo1"] = image_name
+        for slot in range(1, 5):
+            photo_column = f"Photo{slot}"
+            source_column = f"Tên file ảnh {slot}"
+            image_name = str(product.get(source_column, "")).strip()
+            if photo_column in row and image_name:
+                _validate_image_name(image_name)
+                if image_name not in images:
+                    missing_images.append(image_name)
+                else:
+                    row[photo_column] = image_name
         rows.append(row)
     if missing_images:
         raise ValueError("Thiếu file ảnh đã khai báo: " + ", ".join(sorted(set(missing_images))))
     output_csv = pd.concat([instruction, pd.DataFrame(rows, columns=template.columns)], ignore_index=True)
     members[csv_name] = output_csv.to_csv(index=False, lineterminator="\n").encode("utf-8-sig")
+    # Ảnh ví dụ đi kèm mẫu chỉ để minh họa, không phải ảnh sản phẩm sẽ tạo.
+    members.pop("images/example_photo.jpg", None)
     for name, content in images.items():
         members[f"images/{name}"] = content
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for name, content in members.items():
             archive.writestr(name, content)
-    return output.getvalue(), selected["Tên sản phẩm"].tolist()
+    result = output.getvalue()
+    if len(result) > 200 * 1024 * 1024:
+        raise ValueError("Tệp ZIP đầu ra vượt quá giới hạn 200 MB của Grab.")
+    return result, selected["Tên sản phẩm"].tolist()
