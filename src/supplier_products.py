@@ -12,7 +12,7 @@ import pandas as pd
 # Các tên đã đọc tương đối rõ từ bảng giá. Dòng còn mơ hồ được giữ ở trạng thái
 # Cần xác minh và không được chọn mặc định để tránh tạo sai sản phẩm.
 RAW_ITEMS = [
-    ("Hoa bi trắng", 145, True), ("Cỏ tứ giác", 60, True), ("Đèn rũ xanh", 110, False),
+    ("Hoa baby trắng", 145, True), ("Cỏ tứ giác", 60, True), ("Đèn rũ xanh", 110, False),
     ("Hoa tứ giác trắng", 130, False), ("Jasmine lá", 75, True), ("Jasmine hoa", 85, True),
     ("Cành táo gai cam lớn", 115, True), ("Hoa ông lão loại lớn", 160, False),
     ("Hoa ông lão mini", 180, False), ("Delphinium xanh kép", 180, True),
@@ -46,6 +46,9 @@ RAW_ITEMS = [
     ("Cành quả hạnh phúc", 135, True), ("Hoa cỏ dại", 260, False),
 ]
 
+# Bốn sản phẩm đầu tiên đã được chủ cửa hàng xác nhận tải lên GrabMerchant.
+INITIAL_UPLOADED_PRODUCTS = ["Hoa baby trắng", "Cỏ tứ giác", "Jasmine lá", "Jasmine hoa"]
+
 
 def product_description(name: str, confirmed: bool) -> str:
     """Sinh mô tả catalogue thận trọng, không tự suy đoán quy cách bán."""
@@ -77,7 +80,7 @@ def product_description(name: str, confirmed: bool) -> str:
         feature = "cánh hoa mềm, nhiều lớp, phù hợp bó hoa và cắm bình"
     elif "cúc nhí" in lower:
         feature = "bông nhỏ, thích hợp làm hoa phụ và tạo độ thoáng"
-    elif "bi trắng" in lower:
+    elif "baby trắng" in lower or "bi trắng" in lower:
         feature = "cụm hoa trắng nhỏ, thường dùng làm hoa phụ"
     elif "jasmine hoa" in lower:
         feature = "cành hoa nhỏ, phù hợp phối bó và trang trí nhẹ nhàng"

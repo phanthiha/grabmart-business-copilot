@@ -18,7 +18,13 @@ from src.data import load_data
 from src.clipboard_image import decode_pasted_image, paste_image_zone
 from src.metrics import action_list, catalogue_issues, gini
 from src.menu_sales import combine_menu_sales, period_comparison, preparation_board, price_changes, product_performance
-from src.supplier_products import build_create_items_zip, recalculate_prices, safe_image_filename, supplier_product_table
+from src.supplier_products import (
+    INITIAL_UPLOADED_PRODUCTS,
+    build_create_items_zip,
+    recalculate_prices,
+    safe_image_filename,
+    supplier_product_table,
+)
 from src.paper_experiments import (
     assortment_performance,
     concentration,
@@ -465,26 +471,78 @@ elif page == "Tạo sản phẩm hàng loạt":
         if "supplier_product_images" not in st.session_state:
             st.session_state.supplier_product_images = {}
         image_store = st.session_state.supplier_product_images
+        # Giữ ảnh đã tải nếu phiên cũ còn dùng tên "Hoa bi trắng".
+        for slot in range(1, 5):
+            old_key = ("Hoa bi trắng", slot)
+            new_key = ("Hoa baby trắng", slot)
+            if old_key in image_store and new_key not in image_store:
+                image_store[new_key] = image_store.pop(old_key)
+        if "supplier_uploaded_products" not in st.session_state:
+            st.session_state.supplier_uploaded_products = list(INITIAL_UPLOADED_PRODUCTS)
+        uploaded_products = set(st.session_state.supplier_uploaded_products)
         multiplier = st.number_input("Hệ số giá bán", min_value=1.0, max_value=10.0, value=2.0, step=0.1, help="Giá bán = Giá gốc × Hệ số. Chưa bao gồm kiểm tra phí nền tảng và hao hụt.")
         all_supplier_products = supplier_product_table(multiplier)
+        st.markdown("### Sản phẩm đã tải lên GrabMerchant")
+        uploaded_rows = all_supplier_products[
+            all_supplier_products["Tên sản phẩm"].isin(uploaded_products)
+        ]
+        if uploaded_rows.empty:
+            st.info("Chưa có sản phẩm nào được đánh dấu đã tải lên GrabMerchant.")
+        else:
+            st.success(f"Đã xác nhận {len(uploaded_rows)} sản phẩm. Các sản phẩm này được ẩn khỏi danh sách tạo mới.")
+            for start in range(0, len(uploaded_rows), 4):
+                uploaded_columns = st.columns(4)
+                for uploaded_column, (_, uploaded_product) in zip(
+                    uploaded_columns, uploaded_rows.iloc[start:start + 4].iterrows()
+                ):
+                    product_name = str(uploaded_product["Tên sản phẩm"])
+                    product_images = [
+                        image_store[(product_name, slot)]["content"]
+                        for slot in range(1, 5)
+                        if (product_name, slot) in image_store
+                    ]
+                    with uploaded_column:
+                        if product_images:
+                            st.image(product_images[0], width="stretch")
+                        else:
+                            st.info("Chưa còn ảnh trong phiên")
+                        st.markdown(f"**{product_name}**")
+                        st.caption(f"{int(uploaded_product['Giá bán (₫)']):,.0f} ₫ · ✅ Đã up")
+            with st.expander("Quản lý danh sách đã up"):
+                st.caption("Bỏ đánh dấu nếu cần đưa sản phẩm trở lại danh sách tạo mới.")
+                for name in sorted(uploaded_products):
+                    if st.checkbox(f"{name} — đã up", value=True, key=f"uploaded_manager_{name}") is False:
+                        uploaded_products.discard(name)
+                        st.session_state.supplier_uploaded_products = sorted(uploaded_products)
+                        st.rerun()
+
         st.markdown("### Bước 1 — Chọn nhóm sản phẩm thử nghiệm")
+        available_supplier_products = all_supplier_products[
+            ~all_supplier_products["Tên sản phẩm"].isin(uploaded_products)
+        ]
+        available_names = available_supplier_products["Tên sản phẩm"].astype(str).tolist()
+        existing_trial_selection = st.session_state.get("supplier_trial_product_order", [])
+        if any(name not in available_names for name in existing_trial_selection):
+            st.session_state.supplier_trial_product_order = [
+                name for name in existing_trial_selection if name in available_names
+            ]
         trial_names = st.multiselect(
             "Chọn sản phẩm thử nghiệm theo thứ tự",
-            options=all_supplier_products["Tên sản phẩm"].astype(str).tolist(),
+            options=available_names,
             default=[],
             help="Hãy chọn lần lượt 3–5 sản phẩm. Thứ tự chọn tại đây cũng là thứ tự trong CSV xuất sang Grab.",
             key="supplier_trial_product_order",
         )
         if trial_names:
             base_supplier = (
-                all_supplier_products.set_index("Tên sản phẩm", drop=False)
+                available_supplier_products.set_index("Tên sản phẩm", drop=False)
                 .loc[trial_names]
                 .reset_index(drop=True)
             )
             base_supplier["Chọn tạo"] = True
             base_supplier.insert(0, "Thứ tự", range(1, len(base_supplier) + 1))
         else:
-            base_supplier = all_supplier_products.iloc[0:0].copy()
+            base_supplier = available_supplier_products.iloc[0:0].copy()
             base_supplier.insert(0, "Thứ tự", pd.Series(dtype="int64"))
             st.warning("Chưa chọn sản phẩm thử nghiệm. Hãy chọn 3–5 sản phẩm trong ô phía trên.")
         st.markdown("### Bước 2 — Rà soát tên, giá và mô tả")
@@ -619,7 +677,7 @@ elif page == "Tạo sản phẩm hàng loạt":
         st.markdown("#### Nhật ký sản phẩm đã thao tác trong phiên")
         touched_names = [
             name for name in all_supplier_products["Tên sản phẩm"].astype(str)
-            if any(key[0] == name for key in image_store)
+            if name not in uploaded_products and any(key[0] == name for key in image_store)
         ]
         globally_ready_names = {
             str(row["Tên sản phẩm"])
@@ -642,11 +700,20 @@ elif page == "Tạo sản phẩm hàng loạt":
             )
             for name in touched_names:
                 count = sum((name, slot) in image_store for slot in range(1, 5))
+                was_uploaded = name in uploaded_products
                 applied = st.checkbox(
                     f"{name} — {count}/4 ảnh — Đã áp dụng trên GrabMerchant",
+                    value=was_uploaded,
                     key=f"grab_applied_{name}",
                     help="Chỉ đánh dấu sau khi GrabMerchant đã xử lý file và không báo lỗi.",
                 )
+                if applied != was_uploaded:
+                    if applied:
+                        uploaded_products.add(name)
+                    else:
+                        uploaded_products.discard(name)
+                    st.session_state.supplier_uploaded_products = sorted(uploaded_products)
+                    st.rerun()
                 if applied:
                     status = "✅ Đã xác nhận cập nhật trên Grab"
                 elif name in globally_ready_names:
