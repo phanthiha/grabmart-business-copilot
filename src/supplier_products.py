@@ -47,6 +47,56 @@ RAW_ITEMS = [
 ]
 
 
+def product_description(name: str, confirmed: bool) -> str:
+    """Sinh mô tả catalogue thận trọng, không tự suy đoán quy cách bán."""
+    lower = name.casefold()
+    if not confirmed:
+        return (
+            f"{name} dùng cắm hoa và trang trí. Tên thương mại và mẫu thực tế cần được xác nhận "
+            "với nhà cung cấp trước khi đăng bán."
+        )
+    if "cẩm tú cầu" in lower:
+        feature = "cụm hoa tròn gồm nhiều bông nhỏ"
+    elif "delphinium" in lower or "phi yến" in lower:
+        feature = "dáng cành cao với các bông hoa xếp dọc thân"
+    elif "hồng chùm" in lower:
+        feature = "nhiều bông nhỏ trên cùng một cành, tạo độ đầy tự nhiên"
+    elif "hoa hồng" in lower:
+        feature = "dáng hoa hồng nhiều lớp cánh, phù hợp làm hoa chủ đạo"
+    elif "protea" in lower:
+        feature = "bông có hình khối nổi bật, thích hợp tạo điểm nhấn"
+    elif "tulip" in lower:
+        feature = "dáng hoa thanh gọn, phù hợp phong cách cắm tối giản"
+    elif "allium" in lower:
+        feature = "cụm hoa dạng cầu trên cành thẳng, tạo điểm nhấn hình khối"
+    elif "wax" in lower:
+        feature = "nhiều bông nhỏ trên cành, phù hợp làm hoa phụ"
+    elif "thược dược" in lower:
+        feature = "bông nhiều lớp cánh, thích hợp làm điểm nhấn cho bình hoa"
+    elif "cát tường" in lower:
+        feature = "cánh hoa mềm, nhiều lớp, phù hợp bó hoa và cắm bình"
+    elif "cúc nhí" in lower:
+        feature = "bông nhỏ, thích hợp làm hoa phụ và tạo độ thoáng"
+    elif "bi trắng" in lower:
+        feature = "cụm hoa trắng nhỏ, thường dùng làm hoa phụ"
+    elif "jasmine hoa" in lower:
+        feature = "cành hoa nhỏ, phù hợp phối bó và trang trí nhẹ nhàng"
+    elif "jasmine lá" in lower:
+        feature = "cành lá xanh dùng tạo nền và đường nét cho thiết kế hoa"
+    elif lower.startswith("lá ") or "cành thiên môn" in lower or "tùng" in lower:
+        feature = "cành lá trang trí dùng tạo nền, độ xanh và đường nét"
+    elif "dây rối" in lower:
+        feature = "phụ liệu dạng dây dùng tạo đường nét cho thiết kế hoa"
+    elif "cành san hô" in lower or "cỏ thép" in lower:
+        feature = "cành trang trí có đường nét rõ, thích hợp tạo điểm nhấn"
+    else:
+        feature = "hoa hoặc cành trang trí dùng phối bó và cắm bình"
+    return (
+        f"{name}, {feature}. Sản phẩm bán theo mẫu hình; màu sắc, độ nở và hình dáng "
+        "có thể chênh lệch nhẹ theo từng lô hoa."
+    )[:300]
+
+
 def supplier_product_table(multiplier: float = 2.0) -> pd.DataFrame:
     rows = []
     for name, cost_thousand, confirmed in RAW_ITEMS:
@@ -57,7 +107,7 @@ def supplier_product_table(multiplier: float = 2.0) -> pd.DataFrame:
             "Hệ số giá": float(multiplier),
             "Giá bán (₫)": int(round(cost_thousand * 1000 * multiplier)),
             "Danh mục Grab": "Hoa nguyên liệu / dụng cụ cắm hoa",
-            "Mô tả": f"{name} dùng cắm hoa và trang trí. Hình ảnh mang tính minh họa; vui lòng xác nhận mẫu thực tế.",
+            "Mô tả": product_description(name, confirmed),
             "Tên file ảnh 1": "",
             "Tên file ảnh 2": "",
             "Tên file ảnh 3": "",

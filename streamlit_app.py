@@ -449,6 +449,14 @@ elif page == "Tạo sản phẩm hàng loạt":
         "và chọn **Thêm vào thực đơn**."
     )
     st.markdown("[Xem hướng dẫn cập nhật hàng loạt chính thức của Grab ↗](https://help.grab.com/merchant/vi-vn/40001523)")
+    with st.expander("Căn cứ xây dựng mô tả sản phẩm"):
+        st.markdown(
+            "Mô tả được viết theo đặc điểm hình thái ở cấp nhóm hoa, sau đó vẫn phải đối chiếu ảnh và quy cách của vựa. "
+            "Các nguồn thực vật tham khảo gồm [Delphinium – NC State Extension](https://plants.ces.ncsu.edu/plants/delphinium/), "
+            "[Hydrangea – NC State Extension](https://plants.ces.ncsu.edu/plants/hydrangea/) và "
+            "[Waxflower – Royal Horticultural Society](https://www.rhs.org.uk/plants/62627/chamelaucium-uncinatum/details). "
+            "Ứng dụng không tự thêm số cành, kích thước, xuất xứ, mùi hương hoặc độ bền khi bảng giá chưa cung cấp."
+        )
     st.warning("Giá gốc trong ảnh đang được hiểu theo nghìn đồng và chưa rõ đơn vị bó/cành. Phải xác nhận với vựa trước khi tải lên GrabMerchant.")
     if not authorized:
         st.warning("Vui lòng đăng nhập bằng tài khoản được cấp quyền để tạo gói sản phẩm thật.")
