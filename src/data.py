@@ -115,6 +115,9 @@ def load_demo() -> DataBundle:
         "abc": np.where(gross == 0, "N_No sales", rng.choice(["A_top80", "B_next15", "C_tail5"], n)),
         "xyz": np.where(gross == 0, "N_no_selling_day", rng.choice(["X_repeated_10plus_days", "Y_occasional_4_9_days", "Z_sporadic_1_3_days"], n)),
         "priority_label": priorities,
+        "managerial_class": rng.choice(
+            ["Core", "Seasonal", "Growth", "Review / rationalize"], n
+        ),
         "review_priority_score": rng.integers(10, 96, n),
         "duplicate_name": rng.random(n) < .07,
         "duplicate_with_price_diff": rng.random(n) < .015,
