@@ -9,6 +9,7 @@
 - Kiểm toán trùng tên, mô tả, ảnh mẫu và barcode không hợp lệ; SKU/barcode để trống không bị xem là lỗi đối với sản phẩm hoa làm theo mẫu.
 - Nhận gói ZIP thực đơn mới nhất từ GrabMerchant, chỉnh sửa trực tiếp trên form hoặc bằng phiếu CSV, kiểm tra thay đổi và tạo lại ZIP đúng cấu trúc để cập nhật hàng loạt.
 - Phân tích nhiều file Menu Sales Việt/Anh, phát hiện giai đoạn chồng lặp, so sánh kỳ, đánh giá sản phẩm, lập bảng chuẩn bị hoa và đối chiếu với catalogue.
+- Tạo dự thảo sản phẩm từ bảng giá nhà cung cấp, tính giá bán theo hệ số, gắn ảnh được phép sử dụng và điền vào mẫu ZIP Tạo món hàng loạt chính thức của GrabMerchant.
 - Phân tích MIWI Missing/Wrong và Customer Review.
 - Khám phá tám bảng dữ liệu đã giới hạn cột: xem kích thước, cấu trúc, tỷ lệ thiếu, tìm kiếm và tải dữ liệu phân tích đã khử trường nhạy cảm.
 - Phân tích thực nghiệm trên tám bảng dữ liệu: tập trung doanh thu, tần suất, ABC–XYZ, hiệu suất nhóm/giá, chất lượng dữ liệu, khuyến mãi, Chi-square/Cramér’s V, hồi quy logistic cross-validation và phân tích độ nhạy.

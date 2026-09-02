@@ -17,6 +17,7 @@ from src.grab_catalogue import (
 from src.data import load_data
 from src.metrics import action_list, catalogue_issues, gini
 from src.menu_sales import combine_menu_sales, period_comparison, preparation_board, price_changes, product_performance
+from src.supplier_products import build_create_items_zip, recalculate_prices, supplier_product_table
 from src.paper_experiments import (
     assortment_performance,
     concentration,
@@ -127,6 +128,7 @@ with st.sidebar:
         "Danh mục ABC–XYZ",
         "Kiểm toán catalogue",
         "Phân tích Menu Sales",
+        "Tạo sản phẩm hàng loạt",
         "MIWI & đánh giá khách hàng",
         "Phân tích thực nghiệm",
         "Khám phá bảng dữ liệu",
@@ -438,6 +440,59 @@ elif page == "Phân tích Menu Sales":
                             st.download_button("Tải danh sách cần ánh xạ tên", missing_current.to_csv(index=False).encode("utf-8-sig"), "menu_catalogue_name_reconciliation.csv", "text/csv")
         else:
             st.info("Bắt đầu bằng cách tải file Menu Sales mới nhất. Có thể chọn nhiều file cùng lúc; ứng dụng sẽ cảnh báo phần bị chồng lặp.")
+
+elif page == "Tạo sản phẩm hàng loạt":
+    st.header("Tạo sản phẩm hoa hàng loạt từ bảng giá nhà cung cấp")
+    st.warning("Giá gốc trong ảnh đang được hiểu theo nghìn đồng và chưa rõ đơn vị bó/cành. Phải xác nhận với vựa trước khi tải lên GrabMerchant.")
+    if not authorized:
+        st.warning("Vui lòng đăng nhập bằng tài khoản được cấp quyền để tạo gói sản phẩm thật.")
+    else:
+        multiplier = st.number_input("Hệ số giá bán", min_value=1.0, max_value=10.0, value=2.0, step=0.1, help="Giá bán = Giá gốc × Hệ số. Chưa bao gồm kiểm tra phí nền tảng và hao hụt.")
+        base_supplier = supplier_product_table(multiplier)
+        supplier_editor = st.data_editor(
+            base_supplier,
+            width="stretch",
+            hide_index=True,
+            disabled=["Hệ số giá", "Giá bán (₫)", "Tìm ảnh tham chiếu"],
+            column_config={
+                "Chọn tạo": st.column_config.CheckboxColumn(required=True),
+                "Giá gốc (₫)": st.column_config.NumberColumn(format="%,.0f ₫", min_value=0),
+                "Giá bán (₫)": st.column_config.NumberColumn(format="%,.0f ₫"),
+                "Tình trạng tên": st.column_config.SelectboxColumn(options=["Cần xác minh với vựa", "Đã chuẩn hóa"], required=True),
+                "Tìm ảnh tham chiếu": st.column_config.LinkColumn("Tìm ảnh tham chiếu", display_text="Mở tìm kiếm ảnh ↗"),
+                "Tên file ảnh": st.column_config.TextColumn(help="Ví dụ: delphinium_xanh.jpg; tên phải khớp file ảnh tải lên."),
+            },
+            key="supplier_product_editor",
+        )
+        supplier_editor = recalculate_prices(supplier_editor, multiplier)
+        selected_supplier = supplier_editor[supplier_editor["Chọn tạo"].astype(bool)]
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Sản phẩm được chọn", f"{len(selected_supplier):,}")
+        c2.metric("Chưa xác minh tên", f"{selected_supplier['Tình trạng tên'].eq('Cần xác minh với vựa').sum():,}")
+        c3.metric("Có tên file ảnh", f"{selected_supplier['Tên file ảnh'].astype(str).str.strip().ne('').sum():,}")
+        st.download_button("Tải bảng sản phẩm dự thảo", supplier_editor.to_csv(index=False).encode("utf-8-sig"), "supplier_products_draft.csv", "text/csv")
+
+        st.subheader("Ảnh sản phẩm")
+        st.info("Liên kết tìm kiếm chỉ để nhận diện. Hãy tải lên ảnh do cửa hàng/vựa cung cấp hoặc ảnh có quyền sử dụng; không tự động sao chép ảnh Internet có bản quyền vào gian hàng.")
+        image_uploads = st.file_uploader("Tải ảnh JPG/JPEG/PNG đã được phép sử dụng", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="supplier_images")
+        image_map = {image.name: image.getvalue() for image in image_uploads or []}
+        if image_map:
+            st.caption("Đã nhận: " + ", ".join(image_map))
+
+        st.subheader("Xuất gói Tạo món hàng loạt")
+        st.caption("Trên GrabMerchant, chọn Tạo món hàng loạt và tải mẫu/gói hướng dẫn chính thức mới nhất, sau đó đưa nguyên ZIP đó vào đây.")
+        create_template = st.file_uploader("Tải ZIP mẫu Tạo món hàng loạt của GrabMerchant", type=["zip"], key="grab_create_template")
+        if create_template is not None:
+            try:
+                create_zip, created_names = build_create_items_zip(create_template.getvalue(), supplier_editor, image_map)
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                st.success(f"Gói hợp lệ đã sẵn sàng cho {len(created_names):,} sản phẩm.")
+                confirmed_create = st.checkbox("Tôi đã xác nhận tên, đơn vị mua, giá gốc, giá bán và quyền sử dụng ảnh", key="confirm_create_items")
+                if confirmed_create:
+                    st.download_button("Tải ZIP Tạo món hàng loạt", create_zip, "grab_create_items_supplier_flowers.zip", "application/zip", type="primary")
+                    st.warning("Hãy thử trước 3–5 sản phẩm. Chỉ nhấn Áp dụng trên GrabMerchant sau khi trang kiểm tra không báo lỗi.")
 
 elif page == "MIWI & đánh giá khách hàng":
     st.header("Chất lượng thực hiện đơn và đánh giá khách hàng")
