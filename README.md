@@ -7,7 +7,7 @@
 - Dashboard doanh số, giao dịch và giờ cao điểm.
 - Ma trận ABC–XYZ và danh sách sản phẩm cần ưu tiên rà soát.
 - Kiểm toán trùng tên, mô tả, ảnh, SKU và barcode.
-- Nhận gói ZIP thực đơn mới nhất từ GrabMerchant, xuất phiếu xử lý CSV, kiểm tra thay đổi và tạo lại ZIP đúng cấu trúc để cập nhật hàng loạt.
+- Nhận gói ZIP thực đơn mới nhất từ GrabMerchant, chỉnh sửa trực tiếp trên form hoặc bằng phiếu CSV, kiểm tra thay đổi và tạo lại ZIP đúng cấu trúc để cập nhật hàng loạt.
 - Phân tích MIWI Missing/Wrong và Customer Review.
 - Khám phá tám bảng dữ liệu đã giới hạn cột: xem kích thước, cấu trúc, tỷ lệ thiếu, tìm kiếm và tải dữ liệu phân tích đã khử trường nhạy cảm.
 - Phân tích thực nghiệm trên tám bảng dữ liệu: tập trung doanh thu, tần suất, ABC–XYZ, hiệu suất nhóm/giá, chất lượng dữ liệu, khuyến mãi, Chi-square/Cramér’s V, hồi quy logistic cross-validation và phân tích độ nhạy.

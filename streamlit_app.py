@@ -251,7 +251,62 @@ elif page == "Kiểm toán catalogue":
                         "text/csv",
                     )
 
-                    review_upload = st.file_uploader("3. Tải lên phiếu CSV sau khi sửa", type=["csv"], key="grab_review_csv")
+                    direct_tab, csv_tab = st.tabs(["Sửa trực tiếp trên form", "Sửa bằng CSV"])
+                    with direct_tab:
+                        st.markdown("**3A. Chỉnh sửa các sản phẩm đã chọn**")
+                        st.caption("Đổi Action sang UPDATE, HIDE hoặc DISCONTINUE. Các dòng REVIEW/KEEP sẽ không làm thay đổi thực đơn.")
+                        reviewed_direct = st.data_editor(
+                            review_sheet,
+                            width="stretch",
+                            hide_index=True,
+                            disabled=[
+                                "ItemID", "StoreID", "Issue", "DuplicateGroup",
+                                "CurrentItemName", "CurrentPrice", "CurrentCategory",
+                                "CurrentStatus", "CurrentDescription",
+                            ],
+                            column_config={
+                                "Action": st.column_config.SelectboxColumn(
+                                    "Action",
+                                    options=["REVIEW", "KEEP", "UPDATE", "HIDE", "DISCONTINUE"],
+                                    required=True,
+                                    help="UPDATE: dùng các cột Proposed; HIDE: ẩn món; DISCONTINUE: ngừng bán vĩnh viễn.",
+                                ),
+                                "ProposedPrice": st.column_config.TextColumn(
+                                    "Giá mới",
+                                    help="Nhập số nguyên, ví dụ 269000; không nhập dấu chấm, ₫ hoặc chữ.",
+                                ),
+                                "ProposedStatus": st.column_config.SelectboxColumn(
+                                    "Trạng thái mới",
+                                    options=["AVAILABLE", "UNAVAILABLE_TODAY", "UNAVAILABLE_PERMANENTLY", "HIDDEN"],
+                                ),
+                                "ProposedItemName": st.column_config.TextColumn("Tên mới", max_chars=80),
+                                "ProposedDescription": st.column_config.TextColumn("Mô tả mới", max_chars=300),
+                            },
+                            key=f"grab_direct_editor_{issue_filter}",
+                        )
+                        direct_errors = validate_review(package, reviewed_direct)
+                        direct_updated, direct_log = apply_review(package, reviewed_direct) if direct_errors.empty else (None, pd.DataFrame())
+                        if not direct_errors.empty:
+                            st.error(f"Form có {len(direct_errors):,} lỗi cần sửa.")
+                            st.dataframe(direct_errors, width="stretch", hide_index=True)
+                        elif direct_log.empty:
+                            st.info("Chưa có thay đổi. Chọn Action phù hợp ở ít nhất một dòng.")
+                        else:
+                            st.markdown("**4A. Xem trước thay đổi từ form**")
+                            st.dataframe(direct_log, width="stretch", hide_index=True)
+                            direct_confirmed = st.checkbox(
+                                f"Tôi xác nhận {len(direct_log):,} thay đổi trên form",
+                                key=f"confirm_direct_{issue_filter}",
+                            )
+                            if direct_confirmed:
+                                direct_zip = build_grab_zip(package, direct_updated)
+                                stem = package.csv_name.rsplit(".", 1)[0]
+                                st.download_button("Tải ZIP cập nhật từ form", direct_zip, f"{stem}_updated.zip", "application/zip", type="primary", key=f"direct_zip_{issue_filter}")
+                                st.download_button("Tải nhật ký thay đổi từ form", direct_log.to_csv(index=False).encode("utf-8-sig"), f"{stem}_change_log.csv", "text/csv", key=f"direct_log_{issue_filter}")
+
+                    with csv_tab:
+                        st.markdown("**3B. Nhập lại phiếu đã sửa bằng Excel/Google Sheets**")
+                        review_upload = st.file_uploader("Tải lên phiếu CSV sau khi sửa", type=["csv"], key="grab_review_csv")
                     if review_upload is not None:
                         try:
                             reviewed = read_review_csv(review_upload.getvalue())
