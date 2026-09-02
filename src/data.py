@@ -145,8 +145,10 @@ def load_demo() -> DataBundle:
     }, "Dữ liệu demo tổng hợp – không chứa dữ liệu cá nhân")
 
 
-def load_data(use_demo: bool, live_enabled: bool = False) -> DataBundle:
-    if use_demo or not live_enabled:
+def load_data(use_demo: bool) -> DataBundle:
+    # Quyền truy cập dữ liệu thật đã được hợp nhất vào use_demo tại lớp giao diện:
+    # chỉ tài khoản đã xác thực và nằm trong allowlist mới có thể truyền False.
+    if use_demo:
         return load_demo()
     try:
         return load_bigquery()
