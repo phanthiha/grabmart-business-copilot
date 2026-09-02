@@ -95,7 +95,9 @@ with st.sidebar:
     st.caption("Ứng dụng phân tích dữ liệu; GrabMerchant là nơi xác nhận và thực hiện thay đổi.")
     st.link_button("Mở GrabMerchant chính thức ↗", "https://merchant.grab.com/", width="stretch")
 
-bundle = load_data(use_demo, live_enabled=live_enabled)
+# Truyền một đối số để tương thích cả khi Streamlit Cloud còn cache phiên bản
+# cũ của mô-đun src.data trong lúc rolling deploy. Cờ bảo vệ được hợp nhất ở đây.
+bundle = load_data(use_demo or not live_enabled)
 sales = bundle["sales_daily"].copy()
 score = bundle["product_scoring"].copy()
 reviews = bundle["customer_reviews"].copy()
