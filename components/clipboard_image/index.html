@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, sans-serif; color: #31333f; }
+    #zone {
+      min-height: 112px; border: 2px dashed #00a94f; border-radius: 10px;
+      padding: 14px; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; text-align: center; cursor: text; background: #f5fff8;
+      outline: none;
+    }
+    #zone:focus { border-style: solid; box-shadow: 0 0 0 3px rgba(0,177,79,.18); }
+    .title { font-weight: 700; color: #007f3b; }
+    .hint { font-size: 13px; margin-top: 5px; }
+    .status { font-size: 12px; margin-top: 7px; color: #666; }
+  </style>
+</head>
+<body>
+  <div id="zone" contenteditable="true" role="textbox" tabindex="0" aria-label="Dán ảnh từ clipboard">
+    <div class="title" id="title">Dán ảnh</div>
+    <div class="hint">Bấm vào đây rồi nhấn Ctrl+V</div>
+    <div class="status" id="status">Hãy dùng “Sao chép hình ảnh”, không sao chép liên kết.</div>
+  </div>
+  <script>
+    const send = (type, extra = {}) => window.parent.postMessage(
+      {isStreamlitMessage: true, type, ...extra}, "*"
+    );
+    const zone = document.getElementById("zone");
+    const title = document.getElementById("title");
+    const status = document.getElementById("status");
+
+    window.addEventListener("message", (event) => {
+      if (event.data && event.data.type === "streamlit:render") {
+        title.textContent = event.data.args.label || "Dán ảnh";
+      }
+    });
+    zone.addEventListener("paste", (event) => {
+      event.preventDefault();
+      const items = Array.from((event.clipboardData || window.clipboardData).items || []);
+      const imageItem = items.find(item => item.kind === "file" && item.type.startsWith("image/"));
+      if (!imageItem) {
+        status.textContent = "Không tìm thấy ảnh. Hãy nhấp phải vào ảnh và chọn Sao chép hình ảnh.";
+        return;
+      }
+      const file = imageItem.getAsFile();
+      const reader = new FileReader();
+      reader.onload = () => {
+        status.textContent = `Đã nhận ảnh ${(file.size / 1024).toFixed(1)} KB`;
+        send("streamlit:setComponentValue", {
+          value: {dataUrl: reader.result, mime: file.type, token: `${Date.now()}-${file.size}`}
+        });
+      };
+      reader.onerror = () => { status.textContent = "Không đọc được ảnh trong clipboard."; };
+      reader.readAsDataURL(file);
+    });
+    send("streamlit:componentReady", {apiVersion: 1});
+    send("streamlit:setFrameHeight", {height: 120});
+  </script>
+</body>
+</html>
