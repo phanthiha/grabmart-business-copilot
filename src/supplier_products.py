@@ -12,7 +12,7 @@ import pandas as pd
 # Các tên đã đọc tương đối rõ từ bảng giá. Dòng còn mơ hồ được giữ ở trạng thái
 # Cần xác minh và không được chọn mặc định để tránh tạo sai sản phẩm.
 RAW_ITEMS = [
-    ("Hoa bi trắng", 145, True), ("Cỏ tai giác", 60, False), ("Đèn rũ xanh", 110, False),
+    ("Hoa bi trắng", 145, True), ("Cỏ tứ giác", 60, True), ("Đèn rũ xanh", 110, False),
     ("Hoa tứ giác trắng", 130, False), ("Jasmine lá", 75, True), ("Jasmine hoa", 85, True),
     ("Cành táo gai cam lớn", 115, True), ("Hoa ông lão loại lớn", 160, False),
     ("Hoa ông lão mini", 180, False), ("Delphinium xanh kép", 180, True),

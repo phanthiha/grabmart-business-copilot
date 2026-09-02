@@ -457,12 +457,31 @@ elif page == "Tạo sản phẩm hàng loạt":
             st.session_state.supplier_product_images = {}
         image_store = st.session_state.supplier_product_images
         multiplier = st.number_input("Hệ số giá bán", min_value=1.0, max_value=10.0, value=2.0, step=0.1, help="Giá bán = Giá gốc × Hệ số. Chưa bao gồm kiểm tra phí nền tảng và hao hụt.")
-        base_supplier = supplier_product_table(multiplier)
+        all_supplier_products = supplier_product_table(multiplier)
+        trial_names = st.multiselect(
+            "Chọn sản phẩm thử nghiệm theo thứ tự",
+            options=all_supplier_products["Tên sản phẩm"].astype(str).tolist(),
+            default=[],
+            help="Hãy chọn lần lượt 3–5 sản phẩm. Thứ tự chọn tại đây cũng là thứ tự trong CSV xuất sang Grab.",
+            key="supplier_trial_product_order",
+        )
+        if trial_names:
+            base_supplier = (
+                all_supplier_products.set_index("Tên sản phẩm", drop=False)
+                .loc[trial_names]
+                .reset_index(drop=True)
+            )
+            base_supplier["Chọn tạo"] = True
+            base_supplier.insert(0, "Thứ tự", range(1, len(base_supplier) + 1))
+        else:
+            base_supplier = all_supplier_products.iloc[0:0].copy()
+            base_supplier.insert(0, "Thứ tự", pd.Series(dtype="int64"))
+            st.warning("Chưa chọn sản phẩm thử nghiệm. Hãy chọn 3–5 sản phẩm trong ô phía trên.")
         supplier_editor = st.data_editor(
             base_supplier,
             width="stretch",
             hide_index=True,
-            disabled=["Hệ số giá", "Giá bán (₫)", "Tìm ảnh tham chiếu", "Tên file ảnh 1", "Tên file ảnh 2", "Tên file ảnh 3", "Tên file ảnh 4"],
+            disabled=["Thứ tự", "Chọn tạo", "Hệ số giá", "Giá bán (₫)", "Tìm ảnh tham chiếu", "Tên file ảnh 1", "Tên file ảnh 2", "Tên file ảnh 3", "Tên file ảnh 4"],
             column_config={
                 "Chọn tạo": st.column_config.CheckboxColumn(required=True),
                 "Giá gốc (₫)": st.column_config.NumberColumn(format="%,.0f ₫", min_value=0),
@@ -470,7 +489,7 @@ elif page == "Tạo sản phẩm hàng loạt":
                 "Tình trạng tên": st.column_config.SelectboxColumn(options=["Cần xác minh với vựa", "Đã chuẩn hóa"], required=True),
                 "Tìm ảnh tham chiếu": st.column_config.LinkColumn("Tìm ảnh tham chiếu", display_text="Mở tìm kiếm ảnh ↗"),
             },
-            key="supplier_product_editor",
+            key="supplier_product_editor_v2",
         )
         supplier_editor = recalculate_prices(supplier_editor, multiplier)
         selected_supplier = supplier_editor[supplier_editor["Chọn tạo"].astype(bool)]
