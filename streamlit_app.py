@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import io
-
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -485,39 +482,18 @@ elif page == "Tạo sản phẩm hàng loạt":
 
         st.subheader("Ảnh sản phẩm")
         st.info("Liên kết tìm kiếm chỉ để nhận diện. Hãy tải lên ảnh do cửa hàng/vựa cung cấp hoặc ảnh có quyền sử dụng; không tự động sao chép ảnh Internet có bản quyền vào gian hàng.")
-        st.caption("Mỗi sản phẩm có tối đa 4 ảnh. Có thể sao chép ảnh rồi bấm **Dán ảnh từ clipboard**, hoặc chọn file JPG/PNG. Ảnh dán được lưu PNG, tự đặt tên an toàn và giữ trong phiên làm việc hiện tại.")
+        st.caption("Mỗi sản phẩm có tối đa 4 ảnh. Hãy lưu ảnh từ nguồn được phép sử dụng rồi kéo thả hoặc chọn file JPG/PNG. Ứng dụng tự đặt tên an toàn và giữ ảnh trong phiên làm việc hiện tại.")
+        st.warning("Trình duyệt đang chặn quyền đọc clipboard trong iframe của Streamlit Cloud, nên nút dán trực tiếp không đáng tin cậy. Cách ổn định là lưu ảnh về máy, sau đó kéo ảnh vào đúng ô bên dưới.")
         selected_names = selected_supplier["Tên sản phẩm"].astype(str).tolist()
         if selected_names:
             image_product = st.selectbox("Chọn sản phẩm để thêm ảnh", selected_names, key="supplier_image_product")
-            try:
-                from streamlit_paste_button import paste_image_button
-            except ImportError:
-                paste_image_button = None
             image_columns = st.columns(4)
             for slot, image_column in enumerate(image_columns, start=1):
                 image_key = (image_product, slot)
                 with image_column:
                     st.markdown(f"**Ảnh {slot}**")
-                    if paste_image_button is not None:
-                        pasted = paste_image_button(
-                            label="📋 Dán ảnh từ clipboard",
-                            background_color="#00B14F",
-                            hover_background_color="#008C3E",
-                            key=f"paste_{image_product}_{slot}",
-                            errors="raise",
-                        )
-                        if pasted.image_data is not None:
-                            buffer = io.BytesIO()
-                            pasted.image_data.convert("RGB").save(buffer, format="PNG", optimize=True)
-                            filename = safe_image_filename(image_product, slot, "png")
-                            pasted_bytes = buffer.getvalue()
-                            paste_digest = hashlib.sha256(pasted_bytes).hexdigest()
-                            digest_key = f"paste_digest_{image_product}_{slot}"
-                            if st.session_state.get(digest_key) != paste_digest:
-                                image_store[image_key] = {"filename": filename, "content": pasted_bytes}
-                                st.session_state[digest_key] = paste_digest
                     uploaded = st.file_uploader(
-                        f"Hoặc chọn file ảnh {slot}",
+                        f"Kéo thả hoặc chọn file ảnh {slot}",
                         type=["jpg", "png"],
                         key=f"product_image_{image_product}_{slot}",
                         label_visibility="collapsed",
