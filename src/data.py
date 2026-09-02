@@ -10,16 +10,48 @@ from google.cloud import bigquery
 from google.oauth2 import service_account
 
 
-TABLES = (
-    "sales_daily",
-    "menu_sales",
-    "offers",
-    "peak_hours",
-    "product_scoring",
-    "miwi_item_breakdown",
-    "miwi_heatmap",
-    "customer_reviews",
-)
+# Chỉ đọc các trường cần cho phân tích. Các trường nhận dạng/chi tiết thô như
+# customer, review, reply, store_id, merchant, order_id và short_order_number
+# cố ý không xuất hiện trong danh sách này.
+SAFE_COLUMNS = {
+    "sales_daily": (
+        "date", "country", "city", "grab_service", "gross_sales_vnd",
+        "net_sales_vnd", "transaction_count", "avg_transaction_amount_vnd",
+        "average_rating",
+    ),
+    "menu_sales": (
+        "date", "country", "city", "grab_service", "item_name", "units_sold",
+        "item_gross_sales_vnd",
+    ),
+    "offers": (
+        "date", "country", "city", "grab_service", "offer_name",
+        "gross_sales_vnd", "net_sales_vnd", "transaction_count", "spend_vnd",
+    ),
+    "peak_hours": (
+        "date", "country", "city", "grab_service", "hour", "transaction_count",
+    ),
+    "product_scoring": (
+        "product_name_current", "product_group", "price_segment", "current_price",
+        "duplicate_name", "duplicate_with_price_diff", "desc_missing_any",
+        "desc_long_any", "photo_count_min", "sku_present_any", "barcode_present_any",
+        "gross_revenue", "units_sold", "selling_days", "recorded_sales", "abc",
+        "xyz", "abc_xyz", "cell_recorded_sales_rate", "cell_active_products",
+        "review_priority_score", "priority_label", "managerial_class",
+    ),
+    "miwi_item_breakdown": (
+        "date", "item_name", "modifiers_components", "missing_reported",
+        "wrong_reported", "total_reported",
+    ),
+    "miwi_heatmap": ("disposition", "date", "hour", "order_time_local"),
+    "customer_reviews": (
+        "service_type", "rating", "type", "review_datetime", "review_date",
+        "has_reply", "has_review_text", "review_length", "rating_group",
+        "reported_wilted", "reported_missing_wrong", "reported_quality_positive",
+        "reported_delivery",
+    ),
+}
+
+TABLES = tuple(SAFE_COLUMNS)
 
 
 @dataclass(frozen=True)
@@ -47,11 +79,12 @@ def _client() -> tuple[bigquery.Client, str, str]:
 @st.cache_data(ttl=900, show_spinner="Đang đọc dữ liệu từ BigQuery...")
 def load_bigquery() -> DataBundle:
     client, project, dataset = _client()
-    frames = {
-        name: client.query(f"SELECT * FROM `{project}.{dataset}.{name}`").to_dataframe()
-        for name in TABLES
-    }
-    return DataBundle(frames, f"BigQuery: {project}.{dataset}")
+    frames = {}
+    for name, columns in SAFE_COLUMNS.items():
+        projection = ", ".join(f"`{column}`" for column in columns)
+        query = f"SELECT {projection} FROM `{project}.{dataset}.{name}`"
+        frames[name] = client.query(query).to_dataframe()
+    return DataBundle(frames, f"BigQuery (các cột an toàn): {project}.{dataset}")
 
 
 def load_demo() -> DataBundle:
@@ -109,8 +142,8 @@ def load_demo() -> DataBundle:
     }, "Dữ liệu demo tổng hợp – không chứa dữ liệu cá nhân")
 
 
-def load_data(use_demo: bool) -> DataBundle:
-    if use_demo:
+def load_data(use_demo: bool, live_enabled: bool = False) -> DataBundle:
+    if use_demo or not live_enabled:
         return load_demo()
     try:
         return load_bigquery()

@@ -66,7 +66,21 @@ with st.expander("Giới thiệu dự án và quy trình thực hiện", expande
 
 with st.sidebar:
     st.header("Điều khiển")
-    use_demo = st.toggle("Dùng dữ liệu demo an toàn", value=False, help="Tự động bật nếu chưa cấu hình BigQuery secrets.")
+    try:
+        live_enabled = bool(st.secrets.get("enable_live_data", False))
+    except (FileNotFoundError, RuntimeError):
+        live_enabled = False
+    use_demo = st.toggle(
+        "Dùng dữ liệu demo an toàn",
+        value=True,
+        disabled=not live_enabled,
+        help=(
+            "Mặc định dùng dữ liệu demo. Chỉ có thể tắt khi quản trị viên đặt "
+            "enable_live_data=true trong Streamlit Secrets."
+        ),
+    )
+    if not live_enabled:
+        st.caption("🔒 Chế độ công khai: dữ liệu thật đã bị khóa.")
     page = st.radio("Chức năng", [
         "Tổng quan kinh doanh",
         "Danh mục ABC–XYZ",
@@ -81,7 +95,7 @@ with st.sidebar:
     st.caption("Ứng dụng phân tích dữ liệu; GrabMerchant là nơi xác nhận và thực hiện thay đổi.")
     st.link_button("Mở GrabMerchant chính thức ↗", "https://merchant.grab.com/", width="stretch")
 
-bundle = load_data(use_demo)
+bundle = load_data(use_demo, live_enabled=live_enabled)
 sales = bundle["sales_daily"].copy()
 score = bundle["product_scoring"].copy()
 reviews = bundle["customer_reviews"].copy()
@@ -287,16 +301,21 @@ elif page == "Phân tích thực nghiệm":
         st.warning("MIWI và Customer Review có cỡ mẫu nhỏ, chỉ dùng mô tả tín hiệu vận hành. Thông tin nhận dạng khách hàng không được hiển thị trong phần thực nghiệm.")
 
 elif page == "Khám phá bảng dữ liệu":
-    st.header("Khám phá bảng dữ liệu BigQuery")
+    st.header("Khám phá dữ liệu phân tích an toàn")
+    st.info(
+        "Khu vực này chỉ hiển thị và cho tải các cột phục vụ phân tích. "
+        "Tên khách hàng, nội dung nhận xét/phản hồi, mã cửa hàng và mã đơn hàng "
+        "được loại bỏ ngay khi truy vấn BigQuery."
+    )
     table_labels = {
         "sales_daily": "Doanh số theo ngày",
         "menu_sales": "Doanh số theo sản phẩm/menu",
         "offers": "Chương trình khuyến mãi",
         "peak_hours": "Giao dịch theo giờ",
         "product_scoring": "Điểm và phân nhóm sản phẩm",
-        "miwi_item_breakdown": "Chi tiết MIWI theo sản phẩm",
+        "miwi_item_breakdown": "MIWI theo sản phẩm (đã bỏ mã đơn)",
         "miwi_heatmap": "MIWI theo thời gian",
-        "customer_reviews": "Đánh giá khách hàng",
+        "customer_reviews": "Chỉ số đánh giá (không có nội dung/khách hàng)",
     }
     selected_table = st.selectbox(
         "Chọn bảng",
@@ -327,7 +346,7 @@ elif page == "Khám phá bảng dữ liệu":
     st.caption(f"Đang hiển thị {min(len(filtered), limit):,}/{len(filtered):,} dòng phù hợp; bảng gốc có {len(raw_table):,} dòng.")
     st.dataframe(filtered.head(limit), width="stretch", hide_index=True)
     st.download_button(
-        "Tải dữ liệu đang lọc",
+        "Tải dữ liệu phân tích đã lọc và khử trường nhạy cảm",
         filtered.to_csv(index=False).encode("utf-8-sig"),
         f"{selected_table}_filtered.csv",
         "text/csv",
@@ -347,7 +366,7 @@ elif page == "Khám phá bảng dữ liệu":
             hide_index=True,
             column_config={"Tỷ lệ thiếu": st.column_config.ProgressColumn(format="percent", min_value=0, max_value=1)},
         )
-    st.info("Màn hình này chỉ đọc dữ liệu. Việc sửa bảng nguồn phải được thực hiện qua quy trình ETL/BigQuery đã kiểm soát.")
+    st.info("Màn hình này chỉ đọc dữ liệu đã giới hạn cột. Việc sửa bảng nguồn phải được thực hiện qua quy trình ETL/BigQuery đã kiểm soát.")
 
 else:
     st.header("Trung tâm hành động")

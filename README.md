@@ -8,7 +8,7 @@
 - Ma trận ABC–XYZ và danh sách sản phẩm cần ưu tiên rà soát.
 - Kiểm toán trùng tên, mô tả, ảnh, SKU và barcode.
 - Phân tích MIWI Missing/Wrong và Customer Review.
-- Khám phá tám bảng dữ liệu: xem kích thước, cấu trúc cột, tỷ lệ thiếu, tìm kiếm và tải dữ liệu đã lọc.
+- Khám phá tám bảng dữ liệu đã giới hạn cột: xem kích thước, cấu trúc, tỷ lệ thiếu, tìm kiếm và tải dữ liệu phân tích đã khử trường nhạy cảm.
 - Phân tích thực nghiệm trên tám bảng dữ liệu: tập trung doanh thu, tần suất, ABC–XYZ, hiệu suất nhóm/giá, chất lượng dữ liệu, khuyến mãi, Chi-square/Cramér’s V, hồi quy logistic cross-validation và phân tích độ nhạy.
 - Trung tâm hành động có căn cứ dữ liệu, khu vực thao tác, trạng thái xử lý và tệp CSV bàn giao.
 - Liên kết mở GrabMerchant chính thức để chủ cửa hàng đăng nhập, xác minh và tự duyệt thay đổi.
@@ -28,13 +28,16 @@ pip install -r requirements.txt
 streamlit run streamlit_app.py
 ```
 
-Nếu chưa cấu hình BigQuery, ứng dụng tự chuyển sang dữ liệu demo tổng hợp.
+Ứng dụng công khai mặc định và bắt buộc dùng dữ liệu demo tổng hợp. Dữ liệu thật chỉ được bật khi quản trị viên đặt `enable_live_data=true` trong Streamlit Secrets; truy vấn vẫn chỉ đọc danh sách cột an toàn trong `src/data.py`.
 
 ## Kết nối BigQuery
 
 1. Sao chép `.streamlit/secrets.example.toml` thành `.streamlit/secrets.toml`.
 2. Điền thông tin service account có quyền đọc dataset.
 3. Không commit `secrets.toml` hoặc khóa JSON lên GitHub.
+4. Giữ `enable_live_data=false` cho bản demo công khai. Nếu cần bật dữ liệu thật, chỉ cấp tài khoản dịch vụ quyền BigQuery Job User và Data Viewer trên dataset/view an toàn; không cấp Owner/Admin.
+
+Các trường `customer`, `review`, `reply`, `store_id`, `merchant`, `order_id` và `short_order_number` không được truy vấn hoặc tải xuống từ ứng dụng.
 
 Dataset mặc định:
 
