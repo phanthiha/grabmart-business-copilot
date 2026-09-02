@@ -553,20 +553,96 @@ elif page == "Tạo sản phẩm hàng loạt":
         if image_map:
             st.success(f"Đã lưu {len(image_map)} ảnh của {len({key[0] for key in selected_image_store}):,} sản phẩm đang chọn.")
 
+        st.subheader("Tiến độ chuẩn bị sản phẩm")
+        progress_rows = []
+        for _, product in selected_supplier.iterrows():
+            product_name = str(product["Tên sản phẩm"])
+            product_images = [
+                image_store[(product_name, slot)]
+                for slot in range(1, 5)
+                if (product_name, slot) in image_store
+            ]
+            reasons = []
+            if not product_images:
+                reasons.append("chưa có ảnh")
+            if any(len(image["content"]) > 2 * 1024 * 1024 for image in product_images):
+                reasons.append("có ảnh vượt 2 MB")
+            if str(product["Tình trạng tên"]) != "Đã chuẩn hóa":
+                reasons.append("chưa xác minh tên")
+            if not str(product["Mô tả"]).strip():
+                reasons.append("thiếu mô tả")
+            if pd.isna(product["Giá bán (₫)"]) or float(product["Giá bán (₫)"]) <= 0:
+                reasons.append("giá bán chưa hợp lệ")
+            ready = not reasons
+            progress_rows.append({
+                "Thứ tự": int(product["Thứ tự"]),
+                "Sản phẩm": product_name,
+                "Ảnh": f"{len(product_images)}/4",
+                "Tên": "Đã xác minh" if str(product["Tình trạng tên"]) == "Đã chuẩn hóa" else "Cần xác minh",
+                "Giá bán": int(product["Giá bán (₫)"]) if pd.notna(product["Giá bán (₫)"]) else 0,
+                "Trạng thái": "✅ Sẵn sàng xuất" if ready else "⏳ Chưa hoàn thành",
+                "Cần bổ sung": "—" if ready else ", ".join(reasons),
+            })
+        progress_frame = pd.DataFrame(progress_rows)
+        ready_count = int(progress_frame["Trạng thái"].eq("✅ Sẵn sàng xuất").sum()) if not progress_frame.empty else 0
+        selected_count = len(progress_frame)
+        p1, p2, p3 = st.columns(3)
+        p1.metric("Đã hoàn thành", f"{ready_count}/{selected_count}")
+        p2.metric("Chưa hoàn thành", f"{selected_count - ready_count}")
+        p3.metric("Tổng ảnh hợp lệ đã gắn", f"{len(image_map)}")
+        st.progress(ready_count / selected_count if selected_count else 0.0)
+        if not progress_frame.empty:
+            st.dataframe(
+                progress_frame,
+                width="stretch",
+                hide_index=True,
+                column_config={"Giá bán": st.column_config.NumberColumn(format="%,.0f ₫")},
+            )
+
+        preview_products = [row for row in progress_rows if row["Ảnh"] != "0/4"]
+        st.subheader("Xem trước sản phẩm trên gian hàng Grab")
+        if not preview_products:
+            st.info("Sản phẩm sẽ xuất hiện ở đây sau khi có ít nhất một ảnh.")
+        else:
+            st.caption("Giao diện minh họa dùng chính ảnh, tên, giá và mô tả hiện có; không phải màn hình GrabMerchant chính thức.")
+            for start in range(0, len(preview_products), 3):
+                card_columns = st.columns(3)
+                for card_column, status_row in zip(card_columns, preview_products[start:start + 3]):
+                    product_name = status_row["Sản phẩm"]
+                    product = selected_supplier[selected_supplier["Tên sản phẩm"].eq(product_name)].iloc[0]
+                    product_images = [
+                        image_store[(product_name, slot)]
+                        for slot in range(1, 5)
+                        if (product_name, slot) in image_store
+                    ]
+                    with card_column:
+                        st.image(product_images[0]["content"], width="stretch")
+                        st.markdown(f"#### {product_name}")
+                        st.markdown(f"**{int(product['Giá bán (₫)']):,.0f} ₫**")
+                        st.caption(str(product["Mô tả"]))
+                        st.success(f"Có bán · {len(product_images)}/4 ảnh")
+                        if len(product_images) > 1:
+                            thumbnail_columns = st.columns(min(3, len(product_images) - 1))
+                            for thumbnail_column, image in zip(thumbnail_columns, product_images[1:]):
+                                thumbnail_column.image(image["content"], width="stretch")
+
         st.subheader("Xuất gói Tạo món hàng loạt")
         st.caption("Trên GrabMerchant, chọn Thực đơn → Cập nhật hàng loạt → Tạo món hàng loạt và tải mẫu ZIP mới nhất, sau đó đưa nguyên ZIP đó vào đây. Ứng dụng giữ nguyên dòng hướng dẫn, tên cột, readme và danh sách danh mục của mẫu.")
         create_template = st.file_uploader("Tải ZIP mẫu Tạo món hàng loạt của GrabMerchant", type=["zip"], key="grab_create_template")
         if create_template is not None:
-            try:
-                create_zip, created_names = build_create_items_zip(create_template.getvalue(), supplier_editor, image_map)
-            except ValueError as exc:
-                st.error(str(exc))
+            if not selected_count or ready_count < selected_count:
+                st.error("Chưa thể xuất ZIP: hãy hoàn thành tất cả sản phẩm trong bảng tiến độ phía trên.")
             else:
-                st.success(f"Gói hợp lệ đã sẵn sàng cho {len(created_names):,} sản phẩm.")
-                confirmed_create = st.checkbox("Tôi đã xác nhận tên, đơn vị mua, giá gốc, giá bán và quyền sử dụng ảnh", key="confirm_create_items")
-                if confirmed_create:
-                    st.download_button("Tải ZIP Tạo món hàng loạt", create_zip, "grab_create_items_supplier_flowers.zip", "application/zip", type="primary")
-                    st.warning("Hãy tải thực đơn hiện tại để dự phòng và thử trước 3–5 sản phẩm. Grab không hỗ trợ hoàn tác cập nhật hàng loạt; chỉ xác nhận Thêm vào thực đơn khi trang kiểm tra không báo lỗi.")
+                try:
+                    create_zip, created_names = build_create_items_zip(create_template.getvalue(), supplier_editor, image_map)
+                except ValueError as exc:
+                    st.error(str(exc))
+                else:
+                    st.success(f"Gói hợp lệ đã sẵn sàng cho {len(created_names):,} sản phẩm.")
+                    confirmed_create = st.checkbox("Tôi đã xác nhận tên, đơn vị mua, giá gốc, giá bán và quyền sử dụng ảnh", key="confirm_create_items")
+                    if confirmed_create:
+                        st.download_button("Tải ZIP Tạo món hàng loạt", create_zip, "grab_create_items_supplier_flowers.zip", "application/zip", type="primary")
+                        st.warning("Hãy tải thực đơn hiện tại để dự phòng và thử trước 3–5 sản phẩm. Grab không hỗ trợ hoàn tác cập nhật hàng loạt; chỉ xác nhận Thêm vào thực đơn khi trang kiểm tra không báo lỗi.")
 
 elif page == "MIWI & đánh giá khách hàng":
     st.header("Chất lượng thực hiện đơn và đánh giá khách hàng")
