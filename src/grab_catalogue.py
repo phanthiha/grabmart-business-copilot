@@ -108,22 +108,22 @@ def make_review_sheet(products: pd.DataFrame, mask: pd.Series, issue: str) -> pd
     normalized = selected["*ItemName"].map(_normal_name)
     group_codes = pd.factorize(normalized)[0] + 1
     return pd.DataFrame({
+        "Action": "REVIEW",
         "ItemID": selected[ITEM_ID].values,
-        "StoreID": selected[STORE_ID].values,
         "Issue": issue,
         "DuplicateGroup": [f"DUP-{number:03d}" if issue.startswith("Trùng tên") else "" for number in group_codes],
         "CurrentItemName": selected["*ItemName"].values,
-        "CurrentPrice": selected["*Price"].values,
-        "CurrentCategory": selected["*GrabCategoryName"].values,
-        "CurrentStatus": selected["*AvailableStatus"].values,
-        "CurrentDescription": selected["Description"].values,
         "ProposedItemName": selected["*ItemName"].values,
+        "CurrentPrice": selected["*Price"].values,
         "ProposedPrice": selected["*Price"].values,
+        "CurrentCategory": selected["*GrabCategoryName"].values,
         "ProposedCategory": selected["*GrabCategoryName"].values,
+        "CurrentStatus": selected["*AvailableStatus"].values,
         "ProposedStatus": selected["*AvailableStatus"].values,
+        "CurrentDescription": selected["Description"].values,
         "ProposedDescription": selected["Description"].values,
-        "Action": "REVIEW",
         "ReviewNote": "",
+        "StoreID": selected[STORE_ID].values,
     })
 
 

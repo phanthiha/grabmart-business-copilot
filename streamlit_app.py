@@ -266,11 +266,13 @@ elif page == "Kiểm toán catalogue":
                             ],
                             column_config={
                                 "Action": st.column_config.SelectboxColumn(
-                                    "Action",
+                                    "Hành động",
                                     options=["REVIEW", "KEEP", "UPDATE", "HIDE", "DISCONTINUE"],
                                     required=True,
                                     help="UPDATE: dùng các cột Proposed; HIDE: ẩn món; DISCONTINUE: ngừng bán vĩnh viễn.",
                                 ),
+                                "ItemID": st.column_config.TextColumn("Mã sản phẩm"),
+                                "CurrentItemName": st.column_config.TextColumn("Tên hiện tại"),
                                 "ProposedPrice": st.column_config.TextColumn(
                                     "Giá mới",
                                     help="Nhập số nguyên, ví dụ 269000; không nhập dấu chấm, ₫ hoặc chữ.",
