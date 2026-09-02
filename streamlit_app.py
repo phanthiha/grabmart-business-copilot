@@ -5,6 +5,15 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from src.grab_catalogue import (
+    apply_review,
+    build_grab_zip,
+    catalogue_audit as audit_grab_package,
+    make_review_sheet,
+    read_grab_zip,
+    read_review_csv,
+    validate_review,
+)
 from src.data import load_data
 from src.metrics import action_list, catalogue_issues, gini
 from src.paper_experiments import (
@@ -198,22 +207,82 @@ elif page == "Danh mục ABC–XYZ":
 
 elif page == "Kiểm toán catalogue":
     st.header("Kiểm toán chất lượng catalogue")
-    issues = catalogue_issues(score)
-    left, right = st.columns([1.2, 1])
-    left.plotly_chart(px.bar(issues, x="Số sản phẩm", y="Vấn đề", orientation="h", color="Số sản phẩm", color_continuous_scale="Greens"), width="stretch")
-    right.dataframe(issues, width="stretch", hide_index=True)
-    issue_filter = st.selectbox("Danh sách cần xử lý", issues["Vấn đề"])
-    masks = {
-        "Trùng tên": score.duplicate_name,
-        "Trùng tên nhưng khác giá": score.duplicate_with_price_diff,
-        "Thiếu mô tả": score.desc_missing_any,
-        "Chỉ có một ảnh": score.photo_count_min.eq(1),
-        "Thiếu SKU": ~score.sku_present_any.astype(bool),
-        "Thiếu barcode": ~score.barcode_present_any.astype(bool),
-    }
-    audit = score.loc[masks[issue_filter], ["product_name_current", "product_group", "price_segment", "gross_revenue", "priority_label"]]
-    st.dataframe(audit, width="stretch", hide_index=True)
-    st.download_button("Tải danh sách cần sửa", audit.to_csv(index=False).encode("utf-8-sig"), "catalogue_audit.csv", "text/csv")
+    analysis_tab, grab_tab = st.tabs(["Chỉ số phân tích", "Cập nhật hàng loạt GrabMerchant"])
+    with analysis_tab:
+        issues = catalogue_issues(score)
+        left, right = st.columns([1.2, 1])
+        left.plotly_chart(px.bar(issues, x="Số sản phẩm", y="Vấn đề", orientation="h", color="Số sản phẩm", color_continuous_scale="Greens"), width="stretch")
+        right.dataframe(issues, width="stretch", hide_index=True)
+        st.caption("Các chỉ số này lấy từ bảng phân tích BigQuery. Để tạo ZIP cập nhật Grab, sử dụng thẻ bên cạnh.")
+
+    with grab_tab:
+        st.markdown("""
+<div class="workflow"><b>Quy trình:</b> Tải ZIP thực đơn mới nhất từ GrabMerchant → kiểm toán → tải phiếu CSV → sửa và nhập lại → kiểm tra → tải ZIP cập nhật.</div>
+""", unsafe_allow_html=True)
+        if not authorized:
+            st.warning("Vui lòng đăng nhập bằng tài khoản được cấp quyền để xử lý gói thực đơn thật.")
+        else:
+            menu_upload = st.file_uploader("1. Tải lên ZIP thực đơn mới nhất từ GrabMerchant", type=["zip"], key="grab_menu_zip")
+            if menu_upload is not None:
+                try:
+                    package = read_grab_zip(menu_upload.getvalue())
+                    products = package.products
+                    summary, package_masks = audit_grab_package(products)
+                except ValueError as exc:
+                    st.error(str(exc))
+                else:
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("Sản phẩm", f"{len(products):,}")
+                    c2.metric("Đang bán", f"{products['*AvailableStatus'].eq('AVAILABLE').sum():,}")
+                    c3.metric("Danh mục", f"{products['*GrabCategoryName'].nunique():,}")
+                    c4.metric("CSV nguồn", package.csv_name.split("_")[1] if "_" in package.csv_name else "Đã nhận")
+                    st.success("ZIP hợp lệ; CSV, resources và images sẽ được bảo toàn khi xuất lại.")
+                    st.dataframe(summary, width="stretch", hide_index=True)
+
+                    issue_filter = st.selectbox("2. Chọn danh sách cần xử lý", summary["Vấn đề"], key="grab_issue")
+                    mask = package_masks[issue_filter]
+                    review_sheet = make_review_sheet(products, mask, issue_filter)
+                    st.caption(f"Tìm thấy {len(review_sheet):,} sản phẩm. Action mặc định là REVIEW nên chưa làm thay đổi catalogue.")
+                    st.dataframe(review_sheet.head(200), width="stretch", hide_index=True)
+                    st.download_button(
+                        "Tải phiếu xử lý CSV",
+                        review_sheet.to_csv(index=False).encode("utf-8-sig"),
+                        f"grab_review_{issue_filter.replace(' ', '_').lower()}.csv",
+                        "text/csv",
+                    )
+
+                    review_upload = st.file_uploader("3. Tải lên phiếu CSV sau khi sửa", type=["csv"], key="grab_review_csv")
+                    if review_upload is not None:
+                        try:
+                            reviewed = read_review_csv(review_upload.getvalue())
+                            validation_errors = validate_review(package, reviewed)
+                        except ValueError as exc:
+                            st.error(str(exc))
+                        else:
+                            action_counts = reviewed["Action"].str.strip().str.upper().value_counts().rename_axis("Action").reset_index(name="Số dòng")
+                            st.dataframe(action_counts, width="stretch", hide_index=True)
+                            if not validation_errors.empty:
+                                st.error(f"Phiếu xử lý có {len(validation_errors):,} lỗi. Hãy sửa và tải lại trước khi tạo ZIP.")
+                                st.dataframe(validation_errors, width="stretch", hide_index=True)
+                                st.download_button("Tải danh sách lỗi", validation_errors.to_csv(index=False).encode("utf-8-sig"), "grab_review_errors.csv", "text/csv")
+                            else:
+                                updated_catalogue, change_log = apply_review(package, reviewed)
+                                st.success("Phiếu xử lý hợp lệ.")
+                                if change_log.empty:
+                                    st.info("Chưa có thay đổi để xuất. Hãy đặt Action là UPDATE, HIDE hoặc DISCONTINUE cho sản phẩm cần xử lý.")
+                                else:
+                                    st.markdown("**4. Xem trước thay đổi**")
+                                    st.dataframe(change_log, width="stretch", hide_index=True)
+                                    confirmed = st.checkbox(
+                                        f"Tôi đã kiểm tra {len(change_log):,} thay đổi và muốn tạo ZIP cập nhật GrabMerchant",
+                                        key="confirm_grab_zip",
+                                    )
+                                    if confirmed:
+                                        updated_zip = build_grab_zip(package, updated_catalogue)
+                                        stem = package.csv_name.rsplit(".", 1)[0]
+                                        st.download_button("Tải ZIP cập nhật GrabMerchant", updated_zip, f"{stem}_updated.zip", "application/zip", type="primary")
+                                        st.download_button("Tải nhật ký thay đổi", change_log.to_csv(index=False).encode("utf-8-sig"), f"{stem}_change_log.csv", "text/csv")
+                                        st.info("Tải ZIP lên GrabMerchant tại Thực đơn → Cập nhật hàng loạt → Chỉnh sửa món hàng loạt. Chỉ nhấn Áp dụng sau khi Grab kiểm tra thành công.")
 
 elif page == "MIWI & đánh giá khách hàng":
     st.header("Chất lượng thực hiện đơn và đánh giá khách hàng")
