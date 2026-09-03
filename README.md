@@ -94,8 +94,9 @@ Thêm vào Streamlit Secrets:
 ```toml
 enable_product_storage = true
 store_id = "YOUR_GRAB_STORE_ID"
+product_dataset_id = "grabmart_product_workspace"
 product_registry_table = "product_creation_registry"
 product_image_table = "product_creation_images"
 ```
 
-Tài khoản dịch vụ cần quyền chạy BigQuery job và đọc/ghi đúng hai bảng sản phẩm. Sau lần khởi tạo bảng đầu tiên, nên thu hẹp quyền khỏi cấp dataset/project. Phương án này không cần bật Cloud Storage hoặc kích hoạt Free Trial cho Cloud Storage.
+Tài khoản dịch vụ cần quyền chạy BigQuery job và vai trò Data Editor chỉ trên dataset `grabmart_product_workspace`, nơi không chứa dữ liệu đơn hàng/khách hàng. Phương án này không cần bật Cloud Storage hoặc kích hoạt Free Trial cho Cloud Storage.

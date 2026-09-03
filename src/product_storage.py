@@ -36,7 +36,7 @@ def get_product_storage_settings() -> ProductStorageSettings | None:
         return None
     required = {
         "project_id": st.secrets.get("project_id", ""),
-        "dataset_id": st.secrets.get("dataset_id", ""),
+        "dataset_id": st.secrets.get("product_dataset_id", ""),
         "table_id": st.secrets.get("product_registry_table", ""),
         "image_table_id": st.secrets.get("product_image_table", ""),
         "store_id": st.secrets.get("store_id", ""),
@@ -46,7 +46,7 @@ def get_product_storage_settings() -> ProductStorageSettings | None:
         raise ValueError("Thiếu cấu hình lưu trữ: " + ", ".join(missing))
     return ProductStorageSettings(
         project_id=_safe_identifier(str(required["project_id"]), "project_id", True),
-        dataset_id=_safe_identifier(str(required["dataset_id"]), "dataset_id"),
+        dataset_id=_safe_identifier(str(required["dataset_id"]), "product_dataset_id"),
         table_id=_safe_identifier(str(required["table_id"]), "product_registry_table"),
         image_table_id=_safe_identifier(str(required["image_table_id"]), "product_image_table"),
         store_id=_safe_identifier(str(required["store_id"]), "store_id", True),
