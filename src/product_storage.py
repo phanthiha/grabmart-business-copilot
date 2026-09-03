@@ -60,18 +60,10 @@ def product_key(name: str) -> str:
 
 def ensure_product_registry(settings: ProductStorageSettings) -> None:
     client = _client(settings)
-    client.query(f"""CREATE TABLE IF NOT EXISTS `{settings.full_table_id}` (
-      store_id STRING, product_key STRING, product_name STRING,
-      supplier_cost_vnd INT64, selling_price_vnd INT64, price_multiplier FLOAT64,
-      description STRING, name_status STRING, workflow_status STRING,
-      uploaded_to_grab BOOL, grab_uploaded_at TIMESTAMP,
-      image_count INT64, updated_by STRING, updated_at TIMESTAMP
-    ) CLUSTER BY store_id, product_key""").result()
-    client.query(f"""CREATE TABLE IF NOT EXISTS `{settings.full_image_table_id}` (
-      store_id STRING, product_key STRING, product_name STRING, image_slot INT64,
-      filename STRING, content_type STRING, image_bytes BYTES,
-      byte_size INT64, updated_by STRING, updated_at TIMESTAMP
-    ) CLUSTER BY store_id, product_key""").result()
+    # Tables are provisioned once by the project owner. Runtime credentials only
+    # need read/write access to these exact tables, not dataset create privileges.
+    client.get_table(settings.full_table_id)
+    client.get_table(settings.full_image_table_id)
 
 def load_product_registry(settings: ProductStorageSettings) -> pd.DataFrame:
     config = bigquery.QueryJobConfig(query_parameters=[bigquery.ScalarQueryParameter("store_id", "STRING", settings.store_id)])
