@@ -483,11 +483,11 @@ elif page == "Tạo sản phẩm hàng loạt":
             product_storage = None
             st.error(f"Cấu hình kho sản phẩm chưa hợp lệ: {exc}")
         if product_storage is None:
-            st.caption("💾 Tiến độ hiện chỉ lưu trong phiên. Bật `enable_product_storage` sau khi đã cấu hình BigQuery và Cloud Storage.")
+            st.caption("💾 Tiến độ hiện chỉ lưu trong phiên. Bật `enable_product_storage` sau khi đã cấu hình hai bảng BigQuery.")
         else:
             st.success(
                 f"💾 Kho lưu trữ đã cấu hình: `{product_storage.full_table_id}` · "
-                f"ảnh trong bucket private `{product_storage.bucket_name}`"
+                f"ảnh trong `{product_storage.full_image_table_id}`"
             )
             if not st.session_state.get("product_registry_sync_attempted", False):
                 st.session_state.product_registry_sync_attempted = True
@@ -527,7 +527,7 @@ elif page == "Tạo sản phẩm hàng loạt":
             with sync_col:
                 st.caption(f"Đã đọc {len(registry):,} sản phẩm từ BigQuery.")
             with image_col:
-                if st.button("Khôi phục ảnh từ Cloud Storage", width="stretch"):
+                if st.button("Khôi phục ảnh từ BigQuery", width="stretch"):
                     try:
                         restored_images = download_registry_images(product_storage, registry)
                     except Exception as exc:
@@ -786,11 +786,11 @@ elif page == "Tạo sản phẩm hàng loạt":
 
         st.markdown("#### Lưu và đồng bộ tiến độ")
         st.caption(
-            "BigQuery lưu tên, giá, mô tả và trạng thái; Cloud Storage lưu tệp ảnh private. "
+            "BigQuery lưu tên, giá, mô tả, trạng thái và ảnh trong hai bảng tách biệt. "
             "Không lưu mật khẩu GrabMerchant hoặc dữ liệu khách hàng trong luồng này."
         )
         if product_storage is None:
-            st.button("Lưu vào BigQuery & Cloud Storage", disabled=True, width="stretch")
+            st.button("Lưu sản phẩm và ảnh vào BigQuery", disabled=True, width="stretch")
         else:
             persistent_names = uploaded_products | set(selected_names) | {key[0] for key in image_store}
             persistent_rows = all_supplier_products[
@@ -800,7 +800,7 @@ elif page == "Tạo sản phẩm hàng loạt":
                 persistent_rows = pd.concat([persistent_rows, supplier_editor], ignore_index=True)
                 persistent_rows = persistent_rows.drop_duplicates(subset=["Tên sản phẩm"], keep="last")
             if st.button(
-                "Lưu vào BigQuery & Cloud Storage",
+                "Lưu sản phẩm và ảnh vào BigQuery",
                 type="primary",
                 disabled=persistent_rows.empty,
                 width="stretch",

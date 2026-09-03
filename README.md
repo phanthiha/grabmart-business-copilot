@@ -82,20 +82,20 @@ Notebook [`notebooks/BigData_GrabMart_Reproducible_Analysis.ipynb`](notebooks/Bi
 
 ## Lưu tiến độ tạo sản phẩm
 
-Luồng tạo sản phẩm dùng hai lớp lưu trữ tách biệt:
+Luồng tạo sản phẩm dùng hai bảng BigQuery tách biệt:
 
 - BigQuery lưu tên, giá, mô tả, số lượng ảnh và trạng thái `DRAFT`, `READY` hoặc `UPLOADED_TO_GRAB`.
-- Cloud Storage lưu ảnh trong bucket private; BigQuery chỉ giữ đường dẫn `gs://...`.
-- Ứng dụng chỉ ghi khi người dùng đã đăng nhập và bấm **Lưu vào BigQuery & Cloud Storage**.
+- Bảng `product_creation_images` lưu từng ảnh dạng `BYTES`, tối đa 2 MB/ảnh.
+- Ứng dụng chỉ ghi khi người dùng đã đăng nhập và bấm **Lưu sản phẩm và ảnh vào BigQuery**.
 - Mật khẩu GrabMerchant và dữ liệu khách hàng không được lưu trong bảng sản phẩm.
 
-Sau khi tạo bucket private, thêm vào Streamlit Secrets:
+Thêm vào Streamlit Secrets:
 
 ```toml
 enable_product_storage = true
 store_id = "YOUR_GRAB_STORE_ID"
 product_registry_table = "product_creation_registry"
-product_image_bucket = "YOUR_PRIVATE_GCS_BUCKET"
+product_image_table = "product_creation_images"
 ```
 
-Tài khoản dịch vụ cần quyền chạy BigQuery job, đọc/ghi đúng bảng registry và đọc/ghi object trong đúng bucket. Sau lần khởi tạo bảng đầu tiên, nên thu hẹp quyền khỏi cấp dataset/project. Không bật public access cho bucket và không đưa URL ảnh có chữ ký vào BigQuery.
+Tài khoản dịch vụ cần quyền chạy BigQuery job và đọc/ghi đúng hai bảng sản phẩm. Sau lần khởi tạo bảng đầu tiên, nên thu hẹp quyền khỏi cấp dataset/project. Phương án này không cần bật Cloud Storage hoặc kích hoạt Free Trial cho Cloud Storage.
