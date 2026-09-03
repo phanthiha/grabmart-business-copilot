@@ -37,6 +37,12 @@ from src.paper_experiments import (
     quality_summary,
     sensitivity,
 )
+from src.product_storage import (
+    download_registry_images,
+    get_product_storage_settings,
+    load_product_registry,
+    save_products,
+)
 
 
 st.set_page_config(page_title="GrabMart Business Copilot", page_icon="🛒", layout="wide")
@@ -471,6 +477,26 @@ elif page == "Tạo sản phẩm hàng loạt":
         if "supplier_product_images" not in st.session_state:
             st.session_state.supplier_product_images = {}
         image_store = st.session_state.supplier_product_images
+        try:
+            product_storage = get_product_storage_settings()
+        except (KeyError, ValueError) as exc:
+            product_storage = None
+            st.error(f"Cấu hình kho sản phẩm chưa hợp lệ: {exc}")
+        if product_storage is None:
+            st.caption("💾 Tiến độ hiện chỉ lưu trong phiên. Bật `enable_product_storage` sau khi đã cấu hình BigQuery và Cloud Storage.")
+        else:
+            st.success(
+                f"💾 Kho lưu trữ đã cấu hình: `{product_storage.full_table_id}` · "
+                f"ảnh trong bucket private `{product_storage.bucket_name}`"
+            )
+            if not st.session_state.get("product_registry_sync_attempted", False):
+                st.session_state.product_registry_sync_attempted = True
+                try:
+                    st.session_state.product_registry = load_product_registry(product_storage)
+                except Exception as exc:
+                    # Lần chạy đầu có thể chưa có bảng; nút Lưu bên dưới sẽ khởi tạo bảng.
+                    st.session_state.product_registry = pd.DataFrame()
+                    st.session_state.product_registry_sync_error = str(exc)
         # Giữ ảnh đã tải nếu phiên cũ còn dùng tên "Hoa bi trắng".
         for slot in range(1, 5):
             old_key = ("Hoa bi trắng", slot)
@@ -482,6 +508,34 @@ elif page == "Tạo sản phẩm hàng loạt":
         uploaded_products = set(st.session_state.supplier_uploaded_products)
         multiplier = st.number_input("Hệ số giá bán", min_value=1.0, max_value=10.0, value=2.0, step=0.1, help="Giá bán = Giá gốc × Hệ số. Chưa bao gồm kiểm tra phí nền tảng và hao hụt.")
         all_supplier_products = supplier_product_table(multiplier)
+        registry = st.session_state.get("product_registry", pd.DataFrame())
+        if product_storage is not None and not registry.empty:
+            for _, saved_product in registry.iterrows():
+                product_name = str(saved_product["product_name"])
+                match = all_supplier_products["Tên sản phẩm"].eq(product_name)
+                if not match.any():
+                    continue
+                all_supplier_products.loc[match, "Giá gốc (₫)"] = int(saved_product["supplier_cost_vnd"])
+                all_supplier_products.loc[match, "Giá bán (₫)"] = int(saved_product["selling_price_vnd"])
+                all_supplier_products.loc[match, "Hệ số giá"] = float(saved_product["price_multiplier"])
+                all_supplier_products.loc[match, "Mô tả"] = str(saved_product["description"])
+                all_supplier_products.loc[match, "Tình trạng tên"] = str(saved_product["name_status"])
+                if bool(saved_product["uploaded_to_grab"]):
+                    uploaded_products.add(product_name)
+            st.session_state.supplier_uploaded_products = sorted(uploaded_products)
+            sync_col, image_col = st.columns(2)
+            with sync_col:
+                st.caption(f"Đã đọc {len(registry):,} sản phẩm từ BigQuery.")
+            with image_col:
+                if st.button("Khôi phục ảnh từ Cloud Storage", width="stretch"):
+                    try:
+                        restored_images = download_registry_images(product_storage, registry)
+                    except Exception as exc:
+                        st.error(f"Không thể tải ảnh đã lưu: {exc}")
+                    else:
+                        image_store.update(restored_images)
+                        st.success(f"Đã khôi phục {len(restored_images):,} ảnh.")
+                        st.rerun()
         st.markdown("### Sản phẩm đã tải lên GrabMerchant")
         uploaded_rows = all_supplier_products[
             all_supplier_products["Tên sản phẩm"].isin(uploaded_products)
@@ -729,6 +783,51 @@ elif page == "Tạo sản phẩm hàng loạt":
             st.dataframe(pd.DataFrame(tracking_rows), width="stretch", hide_index=True)
         else:
             st.info("Chưa có sản phẩm nào được thêm ảnh trong phiên này.")
+
+        st.markdown("#### Lưu và đồng bộ tiến độ")
+        st.caption(
+            "BigQuery lưu tên, giá, mô tả và trạng thái; Cloud Storage lưu tệp ảnh private. "
+            "Không lưu mật khẩu GrabMerchant hoặc dữ liệu khách hàng trong luồng này."
+        )
+        if product_storage is None:
+            st.button("Lưu vào BigQuery & Cloud Storage", disabled=True, width="stretch")
+        else:
+            persistent_names = uploaded_products | set(selected_names) | {key[0] for key in image_store}
+            persistent_rows = all_supplier_products[
+                all_supplier_products["Tên sản phẩm"].isin(persistent_names)
+            ].copy()
+            if not supplier_editor.empty:
+                persistent_rows = pd.concat([persistent_rows, supplier_editor], ignore_index=True)
+                persistent_rows = persistent_rows.drop_duplicates(subset=["Tên sản phẩm"], keep="last")
+            if st.button(
+                "Lưu vào BigQuery & Cloud Storage",
+                type="primary",
+                disabled=persistent_rows.empty,
+                width="stretch",
+            ):
+                try:
+                    saved_count = save_products(
+                        product_storage,
+                        persistent_rows,
+                        image_store,
+                        uploaded_products,
+                        globally_ready_names,
+                        user_email,
+                    )
+                    st.session_state.product_registry = load_product_registry(product_storage)
+                    st.session_state.product_registry_sync_error = ""
+                except Exception as exc:
+                    st.error(f"Không thể lưu kho sản phẩm: {exc}")
+                else:
+                    st.success(f"Đã lưu {saved_count:,} sản phẩm và các ảnh hiện có vào kho riêng tư.")
+            if st.button("Đồng bộ lại từ BigQuery", width="stretch"):
+                try:
+                    st.session_state.product_registry = load_product_registry(product_storage)
+                except Exception as exc:
+                    st.error(f"Không thể đồng bộ: {exc}")
+                else:
+                    st.success("Đã đọc lại dữ liệu mới nhất từ BigQuery.")
+                    st.rerun()
 
         preview_products = [row for row in progress_rows if row["Ảnh"] != "0/4"]
         st.markdown("### Bước 5 — Xem trước gian hàng Grab")

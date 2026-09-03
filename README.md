@@ -79,3 +79,23 @@ Notebook [`notebooks/BigData_GrabMart_Reproducible_Analysis.ipynb`](notebooks/Bi
 - Không lưu tên khách hàng, Order ID hoặc mật khẩu Grab trong mã nguồn.
 - Chỉ cấp cho service account quyền đọc các bảng cần thiết.
 - Nên triển khai ứng dụng ở chế độ private khi dùng dữ liệu thật.
+
+## Lưu tiến độ tạo sản phẩm
+
+Luồng tạo sản phẩm dùng hai lớp lưu trữ tách biệt:
+
+- BigQuery lưu tên, giá, mô tả, số lượng ảnh và trạng thái `DRAFT`, `READY` hoặc `UPLOADED_TO_GRAB`.
+- Cloud Storage lưu ảnh trong bucket private; BigQuery chỉ giữ đường dẫn `gs://...`.
+- Ứng dụng chỉ ghi khi người dùng đã đăng nhập và bấm **Lưu vào BigQuery & Cloud Storage**.
+- Mật khẩu GrabMerchant và dữ liệu khách hàng không được lưu trong bảng sản phẩm.
+
+Sau khi tạo bucket private, thêm vào Streamlit Secrets:
+
+```toml
+enable_product_storage = true
+store_id = "YOUR_GRAB_STORE_ID"
+product_registry_table = "product_creation_registry"
+product_image_bucket = "YOUR_PRIVATE_GCS_BUCKET"
+```
+
+Tài khoản dịch vụ cần quyền chạy BigQuery job, đọc/ghi đúng bảng registry và đọc/ghi object trong đúng bucket. Sau lần khởi tạo bảng đầu tiên, nên thu hẹp quyền khỏi cấp dataset/project. Không bật public access cho bucket và không đưa URL ảnh có chữ ký vào BigQuery.
