@@ -2,7 +2,9 @@
 from __future__ import annotations
 import re
 import unicodedata
+import base64
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 import pandas as pd
 import streamlit as st
@@ -68,7 +70,9 @@ def ensure_product_registry(settings: ProductStorageSettings) -> None:
 def load_product_registry(settings: ProductStorageSettings) -> pd.DataFrame:
     config = bigquery.QueryJobConfig(query_parameters=[bigquery.ScalarQueryParameter("store_id", "STRING", settings.store_id)])
     return _client(settings).query(
-        f"SELECT * FROM `{settings.full_table_id}` WHERE store_id=@store_id ORDER BY product_name",
+        f"""SELECT * FROM `{settings.full_table_id}` WHERE store_id=@store_id
+        QUALIFY ROW_NUMBER() OVER(PARTITION BY store_id,product_key ORDER BY updated_at DESC)=1
+        ORDER BY product_name""",
         job_config=config,
     ).to_dataframe()
 
@@ -83,34 +87,19 @@ def _existing_image_slots(settings: ProductStorageSettings) -> dict[str, set[int
         slots.setdefault(str(row.product_key), set()).add(int(row.image_slot))
     return slots
 
-def _save_image(settings: ProductStorageSettings, client: bigquery.Client, name: str, slot: int, stored: dict[str, Any], updated_by: str) -> None:
+def _image_row(settings: ProductStorageSettings, name: str, slot: int,
+               stored: dict[str, Any], updated_by: str, updated_at: str) -> dict[str, Any]:
     content = bytes(stored["content"])
     if len(content) > 2 * 1024 * 1024:
         raise ValueError(f"Ảnh {slot} của {name} vượt giới hạn 2 MB.")
     filename = re.sub(r"[^A-Za-z0-9._-]", "_", str(stored["filename"]))
     content_type = "image/png" if filename.lower().endswith(".png") else "image/jpeg"
-    params = [
-        bigquery.ScalarQueryParameter("store_id", "STRING", settings.store_id),
-        bigquery.ScalarQueryParameter("product_key", "STRING", product_key(name)),
-        bigquery.ScalarQueryParameter("product_name", "STRING", name),
-        bigquery.ScalarQueryParameter("image_slot", "INT64", slot),
-        bigquery.ScalarQueryParameter("filename", "STRING", filename),
-        bigquery.ScalarQueryParameter("content_type", "STRING", content_type),
-        bigquery.ScalarQueryParameter("image_bytes", "BYTES", content),
-        bigquery.ScalarQueryParameter("byte_size", "INT64", len(content)),
-        bigquery.ScalarQueryParameter("updated_by", "STRING", updated_by),
-    ]
-    client.query(f"""MERGE `{settings.full_image_table_id}` T
-      USING (SELECT @store_id store_id,@product_key product_key,@image_slot image_slot) S
-      ON T.store_id=S.store_id AND T.product_key=S.product_key AND T.image_slot=S.image_slot
-      WHEN MATCHED THEN UPDATE SET product_name=@product_name,filename=@filename,
-        content_type=@content_type,image_bytes=@image_bytes,byte_size=@byte_size,
-        updated_by=@updated_by,updated_at=CURRENT_TIMESTAMP()
-      WHEN NOT MATCHED THEN INSERT (store_id,product_key,product_name,image_slot,filename,
-        content_type,image_bytes,byte_size,updated_by,updated_at)
-      VALUES (@store_id,@product_key,@product_name,@image_slot,@filename,@content_type,
-        @image_bytes,@byte_size,@updated_by,CURRENT_TIMESTAMP())""",
-      job_config=bigquery.QueryJobConfig(query_parameters=params)).result()
+    return {
+        "store_id": settings.store_id, "product_key": product_key(name),
+        "product_name": name, "image_slot": slot, "filename": filename,
+        "content_type": content_type, "image_bytes": base64.b64encode(content).decode("ascii"),
+        "byte_size": len(content), "updated_by": updated_by, "updated_at": updated_at,
+    }
 
 def save_products(settings: ProductStorageSettings, products: pd.DataFrame,
                   image_store: dict[tuple[str, int], dict[str, Any]],
@@ -118,22 +107,9 @@ def save_products(settings: ProductStorageSettings, products: pd.DataFrame,
     ensure_product_registry(settings)
     client = _client(settings)
     existing_slots = _existing_image_slots(settings)
-    merge_sql = f"""MERGE `{settings.full_table_id}` T
-      USING (SELECT @store_id store_id,@product_key product_key) S
-      ON T.store_id=S.store_id AND T.product_key=S.product_key
-      WHEN MATCHED THEN UPDATE SET product_name=@product_name,supplier_cost_vnd=@supplier_cost_vnd,
-        selling_price_vnd=@selling_price_vnd,price_multiplier=@price_multiplier,
-        description=@description,name_status=@name_status,workflow_status=@workflow_status,
-        uploaded_to_grab=@uploaded_to_grab,
-        grab_uploaded_at=IF(@uploaded_to_grab,COALESCE(T.grab_uploaded_at,CURRENT_TIMESTAMP()),NULL),
-        image_count=@image_count,updated_by=@updated_by,updated_at=CURRENT_TIMESTAMP()
-      WHEN NOT MATCHED THEN INSERT (store_id,product_key,product_name,supplier_cost_vnd,
-        selling_price_vnd,price_multiplier,description,name_status,workflow_status,
-        uploaded_to_grab,grab_uploaded_at,image_count,updated_by,updated_at)
-      VALUES (@store_id,@product_key,@product_name,@supplier_cost_vnd,@selling_price_vnd,
-        @price_multiplier,@description,@name_status,@workflow_status,@uploaded_to_grab,
-        IF(@uploaded_to_grab,CURRENT_TIMESTAMP(),NULL),@image_count,@updated_by,CURRENT_TIMESTAMP())"""
-    saved = 0
+    saved_at = datetime.now(timezone.utc).isoformat()
+    product_rows: list[dict[str, Any]] = []
+    image_rows: list[dict[str, Any]] = []
     for _, row in products.drop_duplicates(subset=["Tên sản phẩm"], keep="last").iterrows():
         name = str(row["Tên sản phẩm"]).strip()
         key = product_key(name)
@@ -141,33 +117,34 @@ def save_products(settings: ProductStorageSettings, products: pd.DataFrame,
         for slot in range(1, 5):
             stored = image_store.get((name, slot))
             if stored:
-                _save_image(settings, client, name, slot, stored, updated_by)
+                image_rows.append(_image_row(settings, name, slot, stored, updated_by, saved_at))
                 slots.add(slot)
         uploaded = name in uploaded_products
         status = "UPLOADED_TO_GRAB" if uploaded else ("READY" if name in ready_products else "DRAFT")
-        params = [
-            bigquery.ScalarQueryParameter("store_id", "STRING", settings.store_id),
-            bigquery.ScalarQueryParameter("product_key", "STRING", key),
-            bigquery.ScalarQueryParameter("product_name", "STRING", name),
-            bigquery.ScalarQueryParameter("supplier_cost_vnd", "INT64", int(row["Giá gốc (₫)"])),
-            bigquery.ScalarQueryParameter("selling_price_vnd", "INT64", int(row["Giá bán (₫)"])),
-            bigquery.ScalarQueryParameter("price_multiplier", "FLOAT64", float(row["Hệ số giá"])),
-            bigquery.ScalarQueryParameter("description", "STRING", str(row["Mô tả"])),
-            bigquery.ScalarQueryParameter("name_status", "STRING", str(row["Tình trạng tên"])),
-            bigquery.ScalarQueryParameter("workflow_status", "STRING", status),
-            bigquery.ScalarQueryParameter("uploaded_to_grab", "BOOL", uploaded),
-            bigquery.ScalarQueryParameter("image_count", "INT64", len(slots)),
-            bigquery.ScalarQueryParameter("updated_by", "STRING", updated_by),
-        ]
-        client.query(merge_sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result()
-        saved += 1
-    return saved
+        product_rows.append({
+            "store_id": settings.store_id, "product_key": key, "product_name": name,
+            "supplier_cost_vnd": int(row["Giá gốc (₫)"]),
+            "selling_price_vnd": int(row["Giá bán (₫)"]),
+            "price_multiplier": float(row["Hệ số giá"]), "description": str(row["Mô tả"]),
+            "name_status": str(row["Tình trạng tên"]), "workflow_status": status,
+            "uploaded_to_grab": uploaded, "grab_uploaded_at": saved_at if uploaded else None,
+            "image_count": len(slots), "updated_by": updated_by, "updated_at": saved_at,
+        })
+    load_config = bigquery.LoadJobConfig(write_disposition=bigquery.WriteDisposition.WRITE_APPEND)
+    if image_rows:
+        client.load_table_from_json(image_rows, settings.full_image_table_id, job_config=load_config).result()
+    if product_rows:
+        client.load_table_from_json(product_rows, settings.full_table_id, job_config=load_config).result()
+    return len(product_rows)
 
 def download_registry_images(settings: ProductStorageSettings, registry: pd.DataFrame) -> dict[tuple[str, int], dict[str, Any]]:
     del registry
     config = bigquery.QueryJobConfig(query_parameters=[bigquery.ScalarQueryParameter("store_id", "STRING", settings.store_id)])
     rows = _client(settings).query(
-        f"SELECT product_name,image_slot,filename,image_bytes FROM `{settings.full_image_table_id}` WHERE store_id=@store_id ORDER BY product_name,image_slot",
+        f"""SELECT product_name,image_slot,filename,image_bytes
+        FROM `{settings.full_image_table_id}` WHERE store_id=@store_id
+        QUALIFY ROW_NUMBER() OVER(PARTITION BY store_id,product_key,image_slot ORDER BY updated_at DESC)=1
+        ORDER BY product_name,image_slot""",
         job_config=config,
     ).result()
     return {(str(row.product_name), int(row.image_slot)): {"filename": str(row.filename), "content": bytes(row.image_bytes)} for row in rows}
