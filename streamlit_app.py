@@ -21,6 +21,7 @@ from src.menu_sales import combine_menu_sales, period_comparison, preparation_bo
 from src.supplier_products import (
     INITIAL_UPLOADED_PRODUCTS,
     build_create_items_zip,
+    extract_grab_categories,
     product_description,
     products_from_image_files,
     recalculate_prices,
@@ -519,6 +520,7 @@ elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ th
             st.session_state[uploaded_state_key] = [] if from_image_folder else list(INITIAL_UPLOADED_PRODUCTS)
         uploaded_products = set(st.session_state[uploaded_state_key])
         multiplier = st.number_input("Hệ số giá bán", min_value=1.0, max_value=10.0, value=2.0, step=0.1, help="Giá bán = Giá gốc × Hệ số. Chưa bao gồm kiểm tra phí nền tảng và hao hụt.")
+        folder_template = None
 
         if from_image_folder:
           with st.container(border=True):
@@ -528,24 +530,46 @@ elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ th
                 "`_1`, `_2`, `_3`, `_4` sẽ được gom vào cùng một sản phẩm. Ví dụ: "
                 "`hoa_baby_trang_145_1.jpg` và `hoa_baby_trang_145_2.jpg`."
             )
-            folder_category = st.text_input(
-                "Danh mục sản phẩm trên Grab",
-                value="Hoa nguyên liệu / dụng cụ cắm hoa",
-                help="Tên phải khớp chính xác danh mục trong ZIP mẫu GrabMerchant; ứng dụng sẽ kiểm tra khi xuất.",
+            folder_template = st.file_uploader(
+                "1. Tải ZIP mẫu Tạo món hàng loạt mới nhất từ GrabMerchant",
+                type=["zip"],
+                key="folder_grab_create_template",
+                help="Ứng dụng đọc danh sách chính thức trong resources/department_list.csv.",
+            )
+            folder_categories = []
+            if folder_template is not None:
+                try:
+                    folder_categories = extract_grab_categories(folder_template.getvalue())
+                except ValueError as exc:
+                    st.error(str(exc))
+                else:
+                    st.success(f"Đã đọc {len(folder_categories):,} danh mục từ ZIP mẫu GrabMerchant.")
+            folder_category = st.selectbox(
+                "2. Chọn một danh mục áp dụng cho toàn bộ thư mục ảnh",
+                options=folder_categories,
+                index=(
+                    folder_categories.index("Hoa chia buồn")
+                    if "Hoa chia buồn" in folder_categories
+                    else (0 if folder_categories else None)
+                ),
+                placeholder="Tải ZIP mẫu để đọc toàn bộ danh mục",
+                disabled=not folder_categories,
+                help="Ví dụ: Hoa chia buồn. Mọi sản phẩm trong lần tải thư mục này dùng cùng danh mục.",
             )
             folder_price_mode = st.radio(
-                "Cách nhập giá gốc",
+                "3. Cách nhập giá gốc",
                 ["Đọc số trong tên file", "Tự nhập trong bảng rà soát"],
                 horizontal=True,
                 help="Ở cách thứ nhất, 145 hoặc 145k được hiểu là 145.000 đồng; giá bán = giá gốc × hệ số.",
             )
             folder_files = st.file_uploader(
-                "Chọn thư mục ảnh sản phẩm",
+                "4. Chọn thư mục ảnh sản phẩm",
                 type=["jpg", "jpeg", "png"],
                 accept_multiple_files="directory",
                 key="supplier_image_directory",
+                disabled=not folder_categories,
             )
-            if folder_files:
+            if folder_files and folder_category:
                 folder_rows, folder_images, folder_warnings = products_from_image_files(
                     [(uploaded.name, uploaded.getvalue()) for uploaded in folder_files],
                     multiplier,
@@ -1020,7 +1044,12 @@ elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ th
             if from_image_folder else "### Bước 6 — Xuất gói Tạo món hàng loạt"
         )
         st.caption("Trên GrabMerchant, chọn Thực đơn → Cập nhật hàng loạt → Tạo món hàng loạt và tải mẫu ZIP mới nhất, sau đó đưa nguyên ZIP đó vào đây. Ứng dụng giữ nguyên dòng hướng dẫn, tên cột, readme và danh sách danh mục của mẫu.")
-        create_template = st.file_uploader("Tải ZIP mẫu Tạo món hàng loạt của GrabMerchant", type=["zip"], key="grab_create_template")
+        if from_image_folder:
+            create_template = folder_template
+            if create_template is not None:
+                st.success("Đang sử dụng ZIP mẫu đã tải ở Bước 1; không cần tải lại.")
+        else:
+            create_template = st.file_uploader("Tải ZIP mẫu Tạo món hàng loạt của GrabMerchant", type=["zip"], key="grab_create_template")
         if create_template is not None:
             if not selected_count or ready_count < selected_count:
                 st.error("Chưa thể xuất ZIP: hãy hoàn thành tất cả sản phẩm trong bảng tiến độ phía trên.")

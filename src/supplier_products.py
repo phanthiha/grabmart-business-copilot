@@ -257,6 +257,37 @@ def _validate_image_name(name: str) -> None:
         )
 
 
+def extract_grab_categories(template_raw: bytes) -> list[str]:
+    """Đọc toàn bộ danh mục con từ ZIP mẫu Tạo món của GrabMerchant."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(template_raw)) as archive:
+            member = next(
+                (
+                    name for name in archive.namelist()
+                    if name.replace("\\", "/").lower() == "resources/department_list.csv"
+                ),
+                None,
+            )
+            if member is None:
+                raise ValueError("ZIP mẫu thiếu resources/department_list.csv.")
+            raw_departments = archive.read(member)
+    except zipfile.BadZipFile as exc:
+        raise ValueError("Tệp đã chọn không phải ZIP mẫu GrabMerchant hợp lệ.") from exc
+    departments = pd.read_csv(
+        io.StringIO(_decode(raw_departments)), dtype=str, keep_default_na=False
+    )
+    if "sub-department" not in departments.columns:
+        raise ValueError("Danh sách danh mục không có cột sub-department.")
+    return sorted(
+        {
+            value.strip()
+            for value in departments["sub-department"].astype(str)
+            if value.strip()
+        },
+        key=str.casefold,
+    )
+
+
 def build_create_items_zip(template_raw: bytes, products: pd.DataFrame, images: dict[str, bytes]) -> tuple[bytes, list[str]]:
     try:
         with zipfile.ZipFile(io.BytesIO(template_raw)) as archive:
