@@ -21,10 +21,11 @@ from src.menu_sales import combine_menu_sales, period_comparison, preparation_bo
 from src.supplier_products import (
     INITIAL_UPLOADED_PRODUCTS,
     build_create_items_zip,
+    product_description,
+    products_from_image_files,
     recalculate_prices,
     safe_image_filename,
     supplier_product_table,
-    products_from_image_files,
 )
 from src.paper_experiments import (
     assortment_performance,
@@ -544,17 +545,79 @@ elif page == "Tạo sản phẩm hàng loạt":
                 f2.metric("Ảnh hợp lệ", len(folder_images))
                 f3.metric("Cần kiểm tra", len(folder_warnings))
                 if not folder_rows.empty:
-                    st.dataframe(
+                    st.caption("Có thể sửa trực tiếp tên và giá gốc trước khi nạp. Giá bán được tự tính lại theo hệ số phía trên.")
+                    folder_editor_key = "folder_import_editor_" + str(abs(hash(tuple(
+                        (uploaded.name, uploaded.size) for uploaded in folder_files
+                    ))))
+                    editable_folder_rows = st.data_editor(
                         folder_rows[["Tên sản phẩm", "Giá gốc (₫)", "Giá bán (₫)", "Danh mục Grab"]],
                         width="stretch",
                         hide_index=True,
+                        disabled=["Giá bán (₫)"],
+                        column_config={
+                            "Tên sản phẩm": st.column_config.TextColumn(required=True),
+                            "Giá gốc (₫)": st.column_config.NumberColumn(format="%,.0f ₫", min_value=0, required=True),
+                            "Giá bán (₫)": st.column_config.NumberColumn(format="%,.0f ₫"),
+                            "Danh mục Grab": st.column_config.TextColumn(required=True),
+                        },
+                        key=folder_editor_key,
                     )
+                    editable_folder_rows["Giá gốc (₫)"] = pd.to_numeric(
+                        editable_folder_rows["Giá gốc (₫)"], errors="coerce"
+                    ).fillna(0)
+                    editable_folder_rows["Giá bán (₫)"] = (
+                        editable_folder_rows["Giá gốc (₫)"] * multiplier
+                    ).round()
+                    edited_names = editable_folder_rows["Tên sản phẩm"].astype(str).str.strip()
+                    duplicate_edited_names = edited_names[edited_names.duplicated(keep=False)].unique().tolist()
+                    invalid_folder_rows = edited_names.eq("") | editable_folder_rows["Giá gốc (₫)"].le(0)
+                    if duplicate_edited_names:
+                        st.error("Tên sản phẩm bị trùng sau khi sửa: " + ", ".join(duplicate_edited_names))
+                    if invalid_folder_rows.any():
+                        st.warning("Còn sản phẩm thiếu tên hoặc giá gốc chưa lớn hơn 0.")
+                else:
+                    editable_folder_rows = folder_rows
+                    duplicate_edited_names = []
+                    invalid_folder_rows = pd.Series(dtype=bool)
                 for message in folder_warnings:
                     st.warning(message)
-                if st.button("Nạp các sản phẩm này vào danh sách tạo mới", type="primary", width="stretch"):
-                    st.session_state.folder_import_products = folder_rows
-                    image_store.update(folder_images)
-                    st.session_state.supplier_trial_product_order = folder_rows["Tên sản phẩm"].astype(str).tolist()
+                can_import_folder = (
+                    not editable_folder_rows.empty
+                    and not duplicate_edited_names
+                    and not invalid_folder_rows.any()
+                )
+                if st.button(
+                    "Nạp các sản phẩm này vào danh sách tạo mới",
+                    type="primary",
+                    width="stretch",
+                    disabled=not can_import_folder,
+                ):
+                    imported_rows = folder_rows.copy()
+                    imported_rows["Tên sản phẩm"] = edited_names.values
+                    imported_rows["Giá gốc (₫)"] = editable_folder_rows["Giá gốc (₫)"].values
+                    imported_rows["Giá bán (₫)"] = editable_folder_rows["Giá bán (₫)"].values
+                    imported_rows["Danh mục Grab"] = editable_folder_rows["Danh mục Grab"].astype(str).str.strip().values
+                    imported_rows["Mô tả"] = imported_rows["Tên sản phẩm"].map(
+                        lambda name: product_description(str(name), True)
+                    )
+                    renamed_images = {}
+                    for old_name, new_name in zip(folder_rows["Tên sản phẩm"], imported_rows["Tên sản phẩm"]):
+                        for slot in range(1, 5):
+                            stored_image = folder_images.get((str(old_name), slot))
+                            if stored_image is None:
+                                continue
+                            extension = str(stored_image["filename"]).rsplit(".", 1)[-1]
+                            new_filename = safe_image_filename(str(new_name), slot, extension)
+                            imported_rows.loc[
+                                imported_rows["Tên sản phẩm"].eq(new_name), f"Tên file ảnh {slot}"
+                            ] = new_filename
+                            renamed_images[(str(new_name), slot)] = {
+                                "filename": new_filename,
+                                "content": stored_image["content"],
+                            }
+                    st.session_state.folder_import_products = imported_rows
+                    image_store.update(renamed_images)
+                    st.session_state.supplier_trial_product_order = imported_rows["Tên sản phẩm"].astype(str).tolist()
                     st.success("Đã nạp tên, giá và ảnh. Hãy rà soát bảng ở Bước 2.")
                     st.rerun()
             if "folder_import_products" in st.session_state:
