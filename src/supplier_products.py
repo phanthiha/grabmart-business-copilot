@@ -129,6 +129,106 @@ def recalculate_prices(frame: pd.DataFrame, multiplier: float) -> pd.DataFrame:
     return output
 
 
+def parse_product_image_filename(filename: str) -> tuple[str, int | None, int | None]:
+    """Đọc tên sản phẩm, giá gốc và thứ tự ảnh từ tên tệp.
+
+    Ví dụ ``hoa_baby_trang_145_2.jpg`` trở thành ``Hoa baby trang``,
+    145.000 đồng và ảnh số 2. Hậu tố 1–4 chỉ được xem là số thứ tự ảnh
+    khi trước nó còn một số giá.
+    """
+    leaf = filename.replace("\\", "/").rsplit("/", 1)[-1]
+    stem = leaf.rsplit(".", 1)[0]
+    normalized = re.sub(r"[\s_-]+", " ", stem).strip()
+    tokens = normalized.split()
+    image_slot = None
+    price_token_index = None
+
+    numeric_positions = [
+        index for index, token in enumerate(tokens)
+        if re.fullmatch(r"\d+(?:[.,]\d+)?(?:k|nghin|ngan)?", token, flags=re.IGNORECASE)
+    ]
+    if len(numeric_positions) >= 2:
+        final_index = numeric_positions[-1]
+        if final_index == len(tokens) - 1 and re.fullmatch(r"[1-4]", tokens[final_index]):
+            image_slot = int(tokens[final_index])
+            price_token_index = numeric_positions[-2]
+    if price_token_index is None and numeric_positions:
+        price_token_index = numeric_positions[-1]
+
+    price_vnd = None
+    remove_positions: set[int] = set()
+    if price_token_index is not None:
+        raw_price = tokens[price_token_index].casefold()
+        suffix_thousand = raw_price.endswith(("k", "nghin", "ngan"))
+        numeric_text = re.sub(r"(?:k|nghin|ngan)$", "", raw_price)
+        numeric_value = float(numeric_text.replace(",", "."))
+        # Bảng giá hoa thường ghi theo nghìn đồng: 145 = 145.000 đồng.
+        price_vnd = int(round(numeric_value * 1000)) if suffix_thousand or numeric_value < 10_000 else int(round(numeric_value))
+        remove_positions.add(price_token_index)
+    if image_slot is not None:
+        remove_positions.add(len(tokens) - 1)
+
+    name_tokens = [token for index, token in enumerate(tokens) if index not in remove_positions]
+    product_name = " ".join(name_tokens).strip()
+    product_name = product_name[:1].upper() + product_name[1:] if product_name else "Sản phẩm chưa đặt tên"
+    return product_name, price_vnd, image_slot
+
+
+def products_from_image_files(
+    files: list[tuple[str, bytes]],
+    multiplier: float,
+    category: str,
+    read_price_from_filename: bool,
+) -> tuple[pd.DataFrame, dict[tuple[str, int], dict[str, bytes | str]], list[str]]:
+    """Gom ảnh trong thư mục thành các dòng sản phẩm và kho ảnh của phiên."""
+    grouped: dict[str, dict] = {}
+    warnings: list[str] = []
+    for original_name, content in files:
+        extension = original_name.rsplit(".", 1)[-1].lower()
+        if extension == "jpeg":
+            extension = "jpg"
+        if extension not in {"jpg", "png"}:
+            warnings.append(f"Bỏ qua {original_name}: Grab ZIP chỉ nhận JPG hoặc PNG.")
+            continue
+        product_name, detected_price, requested_slot = parse_product_image_filename(original_name)
+        record = grouped.setdefault(product_name, {"price": detected_price, "images": []})
+        if record["price"] is None and detected_price is not None:
+            record["price"] = detected_price
+        if len(record["images"]) >= 4:
+            warnings.append(f"{product_name}: chỉ giữ 4 ảnh đầu tiên.")
+            continue
+        used_slots = {item[0] for item in record["images"]}
+        slot = requested_slot if requested_slot and requested_slot not in used_slots else next(
+            candidate for candidate in range(1, 5) if candidate not in used_slots
+        )
+        record["images"].append((slot, extension, content))
+
+    rows = []
+    image_store: dict[tuple[str, int], dict[str, bytes | str]] = {}
+    for product_name, record in grouped.items():
+        cost = int(record["price"] or 0) if read_price_from_filename else 0
+        if read_price_from_filename and not record["price"]:
+            warnings.append(f"{product_name}: không tìm thấy giá trong tên file; hãy nhập trong bảng rà soát.")
+        row = {
+            "Chọn tạo": False,
+            "Tên sản phẩm": product_name,
+            "Giá gốc (₫)": cost,
+            "Hệ số giá": float(multiplier),
+            "Giá bán (₫)": int(round(cost * multiplier)),
+            "Danh mục Grab": category.strip(),
+            "Mô tả": product_description(product_name, True),
+            "Tên file ảnh 1": "", "Tên file ảnh 2": "", "Tên file ảnh 3": "", "Tên file ảnh 4": "",
+            "Tình trạng tên": "Đã chuẩn hóa",
+            "Tìm ảnh tham chiếu": "https://www.google.com/search?tbm=isch&q=" + urllib.parse.quote_plus(product_name + " hoa cắt cành"),
+        }
+        for slot, extension, content in record["images"]:
+            safe_name = safe_image_filename(product_name, slot, extension)
+            row[f"Tên file ảnh {slot}"] = safe_name
+            image_store[(product_name, slot)] = {"filename": safe_name, "content": content}
+        rows.append(row)
+    return pd.DataFrame(rows), image_store, warnings
+
+
 def safe_image_filename(product_name: str, slot: int, extension: str = "png") -> str:
     """Tạo tên ảnh ASCII ổn định để CSV và ZIP luôn khớp nhau."""
     plain = unicodedata.normalize("NFKD", product_name).encode("ascii", "ignore").decode("ascii")

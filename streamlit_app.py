@@ -24,6 +24,7 @@ from src.supplier_products import (
     recalculate_prices,
     safe_image_filename,
     supplier_product_table,
+    products_from_image_files,
 )
 from src.paper_experiments import (
     assortment_performance,
@@ -507,7 +508,72 @@ elif page == "Tạo sản phẩm hàng loạt":
             st.session_state.supplier_uploaded_products = list(INITIAL_UPLOADED_PRODUCTS)
         uploaded_products = set(st.session_state.supplier_uploaded_products)
         multiplier = st.number_input("Hệ số giá bán", min_value=1.0, max_value=10.0, value=2.0, step=0.1, help="Giá bán = Giá gốc × Hệ số. Chưa bao gồm kiểm tra phí nền tảng và hao hụt.")
+
+        with st.expander("Tạo nhanh sản phẩm từ một thư mục ảnh", expanded=True):
+            st.markdown(
+                "Chọn cả thư mục ảnh. Tên file được dùng để tạo tên hoa; các ảnh cùng tên có hậu tố "
+                "`_1`, `_2`, `_3`, `_4` sẽ được gom vào cùng một sản phẩm. Ví dụ: "
+                "`hoa_baby_trang_145_1.jpg` và `hoa_baby_trang_145_2.jpg`."
+            )
+            folder_category = st.text_input(
+                "Danh mục sản phẩm trên Grab",
+                value="Hoa nguyên liệu / dụng cụ cắm hoa",
+                help="Tên phải khớp chính xác danh mục trong ZIP mẫu GrabMerchant; ứng dụng sẽ kiểm tra khi xuất.",
+            )
+            folder_price_mode = st.radio(
+                "Cách nhập giá gốc",
+                ["Đọc số trong tên file", "Tự nhập trong bảng rà soát"],
+                horizontal=True,
+                help="Ở cách thứ nhất, 145 hoặc 145k được hiểu là 145.000 đồng; giá bán = giá gốc × hệ số.",
+            )
+            folder_files = st.file_uploader(
+                "Chọn thư mục ảnh sản phẩm",
+                type=["jpg", "jpeg", "png"],
+                accept_multiple_files="directory",
+                key="supplier_image_directory",
+            )
+            if folder_files:
+                folder_rows, folder_images, folder_warnings = products_from_image_files(
+                    [(uploaded.name, uploaded.getvalue()) for uploaded in folder_files],
+                    multiplier,
+                    folder_category,
+                    folder_price_mode == "Đọc số trong tên file",
+                )
+                f1, f2, f3 = st.columns(3)
+                f1.metric("Sản phẩm nhận diện", len(folder_rows))
+                f2.metric("Ảnh hợp lệ", len(folder_images))
+                f3.metric("Cần kiểm tra", len(folder_warnings))
+                if not folder_rows.empty:
+                    st.dataframe(
+                        folder_rows[["Tên sản phẩm", "Giá gốc (₫)", "Giá bán (₫)", "Danh mục Grab"]],
+                        width="stretch",
+                        hide_index=True,
+                    )
+                for message in folder_warnings:
+                    st.warning(message)
+                if st.button("Nạp các sản phẩm này vào danh sách tạo mới", type="primary", width="stretch"):
+                    st.session_state.folder_import_products = folder_rows
+                    image_store.update(folder_images)
+                    st.session_state.supplier_trial_product_order = folder_rows["Tên sản phẩm"].astype(str).tolist()
+                    st.success("Đã nạp tên, giá và ảnh. Hãy rà soát bảng ở Bước 2.")
+                    st.rerun()
+            if "folder_import_products" in st.session_state:
+                if st.button("Xóa danh sách đã nạp từ thư mục", width="stretch"):
+                    imported_names = set(st.session_state.folder_import_products["Tên sản phẩm"].astype(str))
+                    st.session_state.supplier_product_images = {
+                        key: value for key, value in image_store.items() if key[0] not in imported_names
+                    }
+                    del st.session_state.folder_import_products
+                    st.session_state.supplier_trial_product_order = []
+                    st.rerun()
+
         all_supplier_products = supplier_product_table(multiplier)
+        imported_products = st.session_state.get("folder_import_products", pd.DataFrame())
+        if not imported_products.empty:
+            imported_products = recalculate_prices(imported_products, multiplier)
+            all_supplier_products = pd.concat(
+                [all_supplier_products, imported_products], ignore_index=True
+            ).drop_duplicates(subset=["Tên sản phẩm"], keep="last")
         registry = st.session_state.get("product_registry", pd.DataFrame())
         if product_storage is not None and not registry.empty:
             for _, saved_product in registry.iterrows():

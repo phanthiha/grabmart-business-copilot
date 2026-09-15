@@ -10,6 +10,7 @@
 - Nhận gói ZIP thực đơn mới nhất từ GrabMerchant, chỉnh sửa trực tiếp trên form hoặc bằng phiếu CSV, kiểm tra thay đổi và tạo lại ZIP đúng cấu trúc để cập nhật hàng loạt.
 - Phân tích nhiều file Menu Sales Việt/Anh, phát hiện giai đoạn chồng lặp, so sánh kỳ, đánh giá sản phẩm, lập bảng chuẩn bị hoa và đối chiếu với catalogue.
 - Tạo dự thảo sản phẩm từ bảng giá nhà cung cấp, tính giá bán theo hệ số, gắn ảnh được phép sử dụng và điền vào mẫu ZIP Tạo món hàng loạt chính thức của GrabMerchant.
+- Tạo nhanh sản phẩm từ cả thư mục ảnh: suy ra tên hoa từ tên file, đọc giá gốc trong tên file hoặc cho nhập thủ công, gom tối đa bốn ảnh mỗi sản phẩm, chọn danh mục và xuất ZIP đúng mẫu GrabMerchant.
 - Phân tích MIWI Missing/Wrong và Customer Review.
 - Khám phá tám bảng dữ liệu đã giới hạn cột: xem kích thước, cấu trúc, tỷ lệ thiếu, tìm kiếm và tải dữ liệu phân tích đã khử trường nhạy cảm.
 - Phân tích thực nghiệm trên tám bảng dữ liệu: tập trung doanh thu, tần suất, ABC–XYZ, hiệu suất nhóm/giá, chất lượng dữ liệu, khuyến mãi, Chi-square/Cramér’s V, hồi quy logistic cross-validation và phân tích độ nhạy.
@@ -100,3 +101,10 @@ product_image_table = "product_creation_images"
 ```
 
 Tài khoản dịch vụ cần quyền chạy BigQuery job và vai trò Data Editor chỉ trên dataset `grabmart_product_workspace`, nơi không chứa dữ liệu đơn hàng/khách hàng. Phương án này không cần bật Cloud Storage hoặc kích hoạt Free Trial cho Cloud Storage.
+
+## Quy ước tạo sản phẩm từ thư mục ảnh
+
+- `hoa_baby_trang_145_1.jpg` và `hoa_baby_trang_145_2.jpg` tạo một sản phẩm tên **Hoa baby trang**, giá gốc 145.000 đồng và hai ảnh.
+- Số cuối từ `1` đến `4` là thứ tự ảnh khi ngay trước đó có số giá; `145`, `145k` và `145.000` đều được hiểu là 145.000 đồng.
+- Nếu chọn nhập giá thủ công, người dùng điền giá gốc trong bảng rà soát; giá bán được tính theo hệ số của ứng dụng.
+- Tên, mô tả, giá, danh mục và ảnh phải được kiểm tra trước khi xuất. Danh mục phải trùng chính xác với `resources/department_list.csv` trong ZIP mẫu mới nhất tải từ GrabMerchant.
