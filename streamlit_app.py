@@ -143,7 +143,8 @@ with st.sidebar:
         "Danh mục ABC–XYZ",
         "Kiểm toán catalogue",
         "Phân tích Menu Sales",
-        "Tạo sản phẩm hàng loạt",
+        "Tạo sản phẩm từ bảng giá",
+        "Tạo sản phẩm từ thư mục ảnh",
         "MIWI & đánh giá khách hàng",
         "Phân tích thực nghiệm",
         "Khám phá bảng dữ liệu",
@@ -456,8 +457,12 @@ elif page == "Phân tích Menu Sales":
         else:
             st.info("Bắt đầu bằng cách tải file Menu Sales mới nhất. Có thể chọn nhiều file cùng lúc; ứng dụng sẽ cảnh báo phần bị chồng lặp.")
 
-elif page == "Tạo sản phẩm hàng loạt":
-    st.header("Tạo sản phẩm hoa hàng loạt từ bảng giá nhà cung cấp")
+elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ thư mục ảnh"}:
+    from_image_folder = page == "Tạo sản phẩm từ thư mục ảnh"
+    st.header(
+        "Tạo sản phẩm hoa từ thư mục ảnh"
+        if from_image_folder else "Tạo sản phẩm hoa hàng loạt từ bảng giá nhà cung cấp"
+    )
     st.info(
         "Quy trình đúng định dạng Grab: tải ZIP mẫu **Tạo món hàng loạt** mới nhất → "
         "chọn và rà soát sản phẩm → tải ảnh hợp lệ → xuất ZIP → tải ZIP lên GrabMerchant "
@@ -476,9 +481,13 @@ elif page == "Tạo sản phẩm hàng loạt":
     if not authorized:
         st.warning("Vui lòng đăng nhập bằng tài khoản được cấp quyền để tạo gói sản phẩm thật.")
     else:
-        if "supplier_product_images" not in st.session_state:
-            st.session_state.supplier_product_images = {}
-        image_store = st.session_state.supplier_product_images
+        flow_prefix = "folder" if from_image_folder else "supplier"
+        image_state_key = f"{flow_prefix}_product_images"
+        uploaded_state_key = f"{flow_prefix}_uploaded_products"
+        trial_order_key = f"{flow_prefix}_trial_product_order"
+        if image_state_key not in st.session_state:
+            st.session_state[image_state_key] = {}
+        image_store = st.session_state[image_state_key]
         try:
             product_storage = get_product_storage_settings()
         except (KeyError, ValueError) as exc:
@@ -499,18 +508,21 @@ elif page == "Tạo sản phẩm hàng loạt":
                     # Lần chạy đầu có thể chưa có bảng; nút Lưu bên dưới sẽ khởi tạo bảng.
                     st.session_state.product_registry = pd.DataFrame()
                     st.session_state.product_registry_sync_error = str(exc)
-        # Giữ ảnh đã tải nếu phiên cũ còn dùng tên "Hoa bi trắng".
-        for slot in range(1, 5):
-            old_key = ("Hoa bi trắng", slot)
-            new_key = ("Hoa baby trắng", slot)
-            if old_key in image_store and new_key not in image_store:
-                image_store[new_key] = image_store.pop(old_key)
-        if "supplier_uploaded_products" not in st.session_state:
-            st.session_state.supplier_uploaded_products = list(INITIAL_UPLOADED_PRODUCTS)
-        uploaded_products = set(st.session_state.supplier_uploaded_products)
+        if not from_image_folder:
+            # Giữ ảnh đã tải nếu phiên cũ còn dùng tên "Hoa bi trắng".
+            for slot in range(1, 5):
+                old_key = ("Hoa bi trắng", slot)
+                new_key = ("Hoa baby trắng", slot)
+                if old_key in image_store and new_key not in image_store:
+                    image_store[new_key] = image_store.pop(old_key)
+        if uploaded_state_key not in st.session_state:
+            st.session_state[uploaded_state_key] = [] if from_image_folder else list(INITIAL_UPLOADED_PRODUCTS)
+        uploaded_products = set(st.session_state[uploaded_state_key])
         multiplier = st.number_input("Hệ số giá bán", min_value=1.0, max_value=10.0, value=2.0, step=0.1, help="Giá bán = Giá gốc × Hệ số. Chưa bao gồm kiểm tra phí nền tảng và hao hụt.")
 
-        with st.expander("Tạo nhanh sản phẩm từ một thư mục ảnh", expanded=True):
+        if from_image_folder:
+          with st.container(border=True):
+            st.subheader("Bước 1 — Nhập thư mục ảnh, tên và giá")
             st.markdown(
                 "Chọn cả thư mục ảnh. Tên file được dùng để tạo tên hoa; các ảnh cùng tên có hậu tố "
                 "`_1`, `_2`, `_3`, `_4` sẽ được gom vào cùng một sản phẩm. Ví dụ: "
@@ -617,22 +629,25 @@ elif page == "Tạo sản phẩm hàng loạt":
                             }
                     st.session_state.folder_import_products = imported_rows
                     image_store.update(renamed_images)
-                    st.session_state.supplier_trial_product_order = imported_rows["Tên sản phẩm"].astype(str).tolist()
+                    st.session_state[trial_order_key] = imported_rows["Tên sản phẩm"].astype(str).tolist()
                     st.success("Đã nạp tên, giá và ảnh. Hãy rà soát bảng ở Bước 2.")
                     st.rerun()
             if "folder_import_products" in st.session_state:
                 if st.button("Xóa danh sách đã nạp từ thư mục", width="stretch"):
                     imported_names = set(st.session_state.folder_import_products["Tên sản phẩm"].astype(str))
-                    st.session_state.supplier_product_images = {
+                    st.session_state[image_state_key] = {
                         key: value for key, value in image_store.items() if key[0] not in imported_names
                     }
                     del st.session_state.folder_import_products
-                    st.session_state.supplier_trial_product_order = []
+                    st.session_state[trial_order_key] = []
                     st.rerun()
 
-        all_supplier_products = supplier_product_table(multiplier)
+        all_supplier_products = (
+            supplier_product_table(multiplier).iloc[0:0].copy()
+            if from_image_folder else supplier_product_table(multiplier)
+        )
         imported_products = st.session_state.get("folder_import_products", pd.DataFrame())
-        if not imported_products.empty:
+        if from_image_folder and not imported_products.empty:
             imported_products = recalculate_prices(imported_products, multiplier)
             all_supplier_products = pd.concat(
                 [all_supplier_products, imported_products], ignore_index=True
@@ -651,7 +666,7 @@ elif page == "Tạo sản phẩm hàng loạt":
                 all_supplier_products.loc[match, "Tình trạng tên"] = str(saved_product["name_status"])
                 if bool(saved_product["uploaded_to_grab"]):
                     uploaded_products.add(product_name)
-            st.session_state.supplier_uploaded_products = sorted(uploaded_products)
+            st.session_state[uploaded_state_key] = sorted(uploaded_products)
             sync_col, image_col = st.columns(2)
             with sync_col:
                 st.caption(f"Đã đọc {len(registry):,} sản phẩm từ BigQuery.")
@@ -696,17 +711,20 @@ elif page == "Tạo sản phẩm hàng loạt":
                 for name in sorted(uploaded_products):
                     if st.checkbox(f"{name} — đã up", value=True, key=f"uploaded_manager_{name}") is False:
                         uploaded_products.discard(name)
-                        st.session_state.supplier_uploaded_products = sorted(uploaded_products)
+                        st.session_state[uploaded_state_key] = sorted(uploaded_products)
                         st.rerun()
 
-        st.markdown("### Bước 1 — Chọn nhóm sản phẩm thử nghiệm")
+        st.markdown(
+            "### Bước 2 — Chọn sản phẩm vừa nạp"
+            if from_image_folder else "### Bước 1 — Chọn nhóm sản phẩm thử nghiệm"
+        )
         available_supplier_products = all_supplier_products[
             ~all_supplier_products["Tên sản phẩm"].isin(uploaded_products)
         ]
         available_names = available_supplier_products["Tên sản phẩm"].astype(str).tolist()
-        existing_trial_selection = st.session_state.get("supplier_trial_product_order", [])
+        existing_trial_selection = st.session_state.get(trial_order_key, [])
         if any(name not in available_names for name in existing_trial_selection):
-            st.session_state.supplier_trial_product_order = [
+            st.session_state[trial_order_key] = [
                 name for name in existing_trial_selection if name in available_names
             ]
         trial_names = st.multiselect(
@@ -714,7 +732,7 @@ elif page == "Tạo sản phẩm hàng loạt":
             options=available_names,
             default=[],
             help="Hãy chọn lần lượt 3–5 sản phẩm. Thứ tự chọn tại đây cũng là thứ tự trong CSV xuất sang Grab.",
-            key="supplier_trial_product_order",
+            key=trial_order_key,
         )
         if trial_names:
             base_supplier = (
@@ -728,7 +746,10 @@ elif page == "Tạo sản phẩm hàng loạt":
             base_supplier = available_supplier_products.iloc[0:0].copy()
             base_supplier.insert(0, "Thứ tự", pd.Series(dtype="int64"))
             st.warning("Chưa chọn sản phẩm thử nghiệm. Hãy chọn 3–5 sản phẩm trong ô phía trên.")
-        st.markdown("### Bước 2 — Rà soát tên, giá và mô tả")
+        st.markdown(
+            "### Bước 3 — Rà soát tên, giá và mô tả"
+            if from_image_folder else "### Bước 2 — Rà soát tên, giá và mô tả"
+        )
         supplier_editor = st.data_editor(
             base_supplier,
             width="stretch",
@@ -741,7 +762,7 @@ elif page == "Tạo sản phẩm hàng loạt":
                 "Tình trạng tên": st.column_config.SelectboxColumn(options=["Cần xác minh với vựa", "Đã chuẩn hóa"], required=True),
                 "Tìm ảnh tham chiếu": st.column_config.LinkColumn("Tìm ảnh tham chiếu", display_text="Mở tìm kiếm ảnh ↗"),
             },
-            key="supplier_product_editor_v2",
+            key=f"{flow_prefix}_product_editor_v3",
         )
         supplier_editor = recalculate_prices(supplier_editor, multiplier)
         selected_supplier = supplier_editor[supplier_editor["Chọn tạo"].astype(bool)]
@@ -751,12 +772,15 @@ elif page == "Tạo sản phẩm hàng loạt":
         c3.metric("Ảnh đã lưu", f"{len(image_store):,}")
         st.download_button("Tải bảng sản phẩm dự thảo", supplier_editor.to_csv(index=False).encode("utf-8-sig"), "supplier_products_draft.csv", "text/csv")
 
-        st.markdown("### Bước 3 — Thêm ảnh theo từng sản phẩm")
+        st.markdown(
+            "### Bước 4 — Bổ sung hoặc thay ảnh"
+            if from_image_folder else "### Bước 3 — Thêm ảnh theo từng sản phẩm"
+        )
         st.info("Liên kết tìm kiếm chỉ để nhận diện. Hãy tải lên ảnh do cửa hàng/vựa cung cấp hoặc ảnh có quyền sử dụng; không tự động sao chép ảnh Internet có bản quyền vào gian hàng.")
         st.caption("Mỗi sản phẩm có tối đa 4 ảnh. Có thể nhấp phải **Sao chép hình ảnh**, bấm vào vùng dán rồi nhấn **Ctrl+V**; hoặc kéo thả/chọn file JPG/PNG. Ứng dụng tự đặt tên an toàn.")
         selected_names = selected_supplier["Tên sản phẩm"].astype(str).tolist()
         if selected_names:
-            image_product = st.selectbox("Chọn sản phẩm để thêm ảnh", selected_names, key="supplier_image_product")
+            image_product = st.selectbox("Chọn sản phẩm để thêm ảnh", selected_names, key=f"{flow_prefix}_image_product")
             for first_slot in (1, 3):
                 image_columns = st.columns(2)
                 for image_column, slot in zip(image_columns, range(first_slot, first_slot + 2)):
@@ -764,7 +788,7 @@ elif page == "Tạo sản phẩm hàng loạt":
                     with image_column:
                         st.markdown(f"**Ảnh {slot}**")
                         pasted = paste_image_zone(
-                            f"Dán vào ảnh {slot}", key=f"event_paste_{image_product}_{slot}"
+                            f"Dán vào ảnh {slot}", key=f"{flow_prefix}_event_paste_{image_product}_{slot}"
                         )
                         if pasted:
                             try:
@@ -772,7 +796,7 @@ elif page == "Tạo sản phẩm hàng loạt":
                             except ValueError as exc:
                                 st.error(str(exc))
                             else:
-                                token_key = f"processed_event_paste_{image_product}_{slot}"
+                                token_key = f"{flow_prefix}_processed_event_paste_{image_product}_{slot}"
                                 if st.session_state.get(token_key) != pasted_token:
                                     filename = safe_image_filename(image_product, slot, pasted_extension)
                                     image_store[image_key] = {"filename": filename, "content": pasted_content}
@@ -781,7 +805,7 @@ elif page == "Tạo sản phẩm hàng loạt":
                         uploaded = st.file_uploader(
                             f"Hoặc kéo thả/chọn file ảnh {slot}",
                             type=["jpg", "png"],
-                            key=f"product_image_{image_product}_{slot}",
+                            key=f"{flow_prefix}_product_image_{image_product}_{slot}",
                         )
                         if uploaded is not None:
                             extension = uploaded.name.rsplit(".", 1)[-1].lower()
@@ -792,7 +816,7 @@ elif page == "Tạo sản phẩm hàng loạt":
                             st.image(stored["content"], caption=stored["filename"], width="stretch")
                             if len(stored["content"]) > 2 * 1024 * 1024:
                                 st.error("Ảnh vượt 2 MB; hãy giảm kích thước trước khi xuất ZIP.")
-                            if st.button("Xóa ảnh", key=f"remove_product_image_{image_product}_{slot}"):
+                            if st.button("Xóa ảnh", key=f"{flow_prefix}_remove_product_image_{image_product}_{slot}"):
                                 del image_store[image_key]
                                 st.rerun()
         else:
@@ -811,7 +835,10 @@ elif page == "Tạo sản phẩm hàng loạt":
         if image_map:
             st.success(f"Đã lưu {len(image_map)} ảnh của {len({key[0] for key in selected_image_store}):,} sản phẩm đang chọn.")
 
-        st.markdown("### Bước 4 — Kiểm tra mức độ hoàn thành")
+        st.markdown(
+            "### Bước 5 — Kiểm tra mức độ hoàn thành"
+            if from_image_folder else "### Bước 4 — Kiểm tra mức độ hoàn thành"
+        )
         progress_rows = []
         for _, product in selected_supplier.iterrows():
             product_name = str(product["Tên sản phẩm"])
@@ -887,7 +914,7 @@ elif page == "Tạo sản phẩm hàng loạt":
                 applied = st.checkbox(
                     f"{name} — {count}/4 ảnh — Đã áp dụng trên GrabMerchant",
                     value=was_uploaded,
-                    key=f"grab_applied_{name}",
+                    key=f"{flow_prefix}_grab_applied_{name}",
                     help="Chỉ đánh dấu sau khi GrabMerchant đã xử lý file và không báo lỗi.",
                 )
                 if applied != was_uploaded:
@@ -895,7 +922,7 @@ elif page == "Tạo sản phẩm hàng loạt":
                         uploaded_products.add(name)
                     else:
                         uploaded_products.discard(name)
-                    st.session_state.supplier_uploaded_products = sorted(uploaded_products)
+                    st.session_state[uploaded_state_key] = sorted(uploaded_products)
                     st.rerun()
                 if applied:
                     status = "✅ Đã xác nhận cập nhật trên Grab"
@@ -959,7 +986,10 @@ elif page == "Tạo sản phẩm hàng loạt":
                     st.rerun()
 
         preview_products = [row for row in progress_rows if row["Ảnh"] != "0/4"]
-        st.markdown("### Bước 5 — Xem trước gian hàng Grab")
+        st.markdown(
+            "### Bước 6 — Xem trước gian hàng Grab"
+            if from_image_folder else "### Bước 5 — Xem trước gian hàng Grab"
+        )
         if not preview_products:
             st.info("Sản phẩm sẽ xuất hiện ở đây sau khi có ít nhất một ảnh.")
         else:
@@ -985,7 +1015,10 @@ elif page == "Tạo sản phẩm hàng loạt":
                             for thumbnail_column, image in zip(thumbnail_columns, product_images[1:]):
                                 thumbnail_column.image(image["content"], width="stretch")
 
-        st.markdown("### Bước 6 — Xuất gói Tạo món hàng loạt")
+        st.markdown(
+            "### Bước 7 — Xuất gói Tạo món hàng loạt"
+            if from_image_folder else "### Bước 6 — Xuất gói Tạo món hàng loạt"
+        )
         st.caption("Trên GrabMerchant, chọn Thực đơn → Cập nhật hàng loạt → Tạo món hàng loạt và tải mẫu ZIP mới nhất, sau đó đưa nguyên ZIP đó vào đây. Ứng dụng giữ nguyên dòng hướng dẫn, tên cột, readme và danh sách danh mục của mẫu.")
         create_template = st.file_uploader("Tải ZIP mẫu Tạo món hàng loạt của GrabMerchant", type=["zip"], key="grab_create_template")
         if create_template is not None:
