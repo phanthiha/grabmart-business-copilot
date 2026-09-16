@@ -480,7 +480,10 @@ elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ th
             "[Waxflower – Royal Horticultural Society](https://www.rhs.org.uk/plants/62627/chamelaucium-uncinatum/details). "
             "Ứng dụng không tự thêm số cành, kích thước, xuất xứ, mùi hương hoặc độ bền khi bảng giá chưa cung cấp."
         )
-    st.warning("Giá gốc trong ảnh đang được hiểu theo nghìn đồng và chưa rõ đơn vị bó/cành. Phải xác nhận với vựa trước khi tải lên GrabMerchant.")
+    if from_image_folder:
+        st.warning("Tên và giá tự động chỉ là dự thảo. Hãy đối chiếu mẫu ảnh, chi phí thực tế và mức giá thị trường trước khi tải lên GrabMerchant.")
+    else:
+        st.warning("Giá gốc trong ảnh đang được hiểu theo nghìn đồng và chưa rõ đơn vị bó/cành. Phải xác nhận với vựa trước khi tải lên GrabMerchant.")
     if not authorized:
         st.warning("Vui lòng đăng nhập bằng tài khoản được cấp quyền để tạo gói sản phẩm thật.")
     else:
@@ -565,10 +568,10 @@ elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ th
                 help="Tên tự động có dạng: Hoa chia buồn – Thành kính phân ưu.",
             )
             folder_price_mode = st.radio(
-                "4. Cách nhập giá gốc",
+                "4. Cách định giá sản phẩm",
                 ["Đọc số trong tên file", "Tự nhập trong bảng rà soát", "Tự động trong khoảng giá"],
                 horizontal=True,
-                help="Ở cách thứ nhất, 145 hoặc 145k được hiểu là 145.000 đồng; giá bán = giá gốc × hệ số.",
+                help="Số trong tên file và giá nhập thủ công là giá gốc. Với chế độ khoảng giá, hai giới hạn là giá bán cuối cùng.",
             )
             auto_price_min = auto_price_max = 0
             if folder_price_mode == "Tự động trong khoảng giá":
