@@ -5,6 +5,7 @@ import re
 import unicodedata
 import urllib.parse
 import zipfile
+import zlib
 
 import pandas as pd
 
@@ -127,6 +128,59 @@ def recalculate_prices(frame: pd.DataFrame, multiplier: float) -> pd.DataFrame:
     output["Hệ số giá"] = float(multiplier)
     output["Giá bán (₫)"] = (output["Giá gốc (₫)"] * multiplier).round()
     return output
+
+
+NATURAL_NAME_SUFFIXES = {
+    "chia buồn": [
+        "Thành kính phân ưu", "Tưởng nhớ trang nghiêm", "Vĩnh biệt thanh nhã",
+        "An nhiên tiễn biệt", "Lời chia xa", "Kính viếng trang trọng",
+    ],
+    "chúc mừng": [
+        "Rực rỡ thành công", "Hưng thịnh phát tài", "Khởi đầu may mắn",
+        "Tưng bừng khởi sắc", "Vươn cao thịnh vượng", "Đại cát thành công",
+    ],
+    "sinh nhật": [
+        "Ngày vui rực rỡ", "Tuổi mới an vui", "Ngọt ngào yêu thương",
+        "Rạng rỡ tuổi mới", "Niềm vui trọn vẹn", "Lời chúc yêu thương",
+    ],
+    "tặng dịp lễ": [
+        "Trao gửi yêu thương", "Lời chúc ngọt ngào", "Dịu dàng thương mến",
+        "Khoảnh khắc đáng nhớ", "Tình yêu rực rỡ", "Món quà tinh tế",
+    ],
+    "hoa thiết kế": [
+        "Thanh lịch tinh tế", "Sắc màu nghệ thuật", "Dịu dàng trang nhã",
+        "Ấn tượng sang trọng", "Nét đẹp hiện đại", "Rực rỡ tự nhiên",
+    ],
+    "hoa nguyên liệu": [
+        "Tươi mới tự nhiên", "Thanh nhã cắm bình", "Sắc hoa tinh tuyển",
+        "Mẫu phối hài hòa", "Cành hoa trang trí", "Vẻ đẹp tự nhiên",
+    ],
+}
+
+
+def automatic_product_names(category: str, count: int) -> list[str]:
+    """Tạo tên duy nhất theo danh mục và hậu tố mô tả tự nhiên."""
+    normalized = category.casefold()
+    suffixes = next(
+        (values for keyword, values in NATURAL_NAME_SUFFIXES.items() if keyword in normalized),
+        ["Mẫu thanh lịch", "Mẫu tinh tế", "Mẫu nổi bật", "Mẫu cao cấp", "Mẫu trang nhã", "Mẫu đặc biệt"],
+    )
+    names = []
+    for index in range(count):
+        suffix = suffixes[index % len(suffixes)]
+        cycle = index // len(suffixes) + 1
+        number = f" {cycle:02d}" if cycle > 1 else ""
+        names.append(f"{category} – {suffix}{number}")
+    return names
+
+
+def automatic_price(seed: str, minimum_vnd: int, maximum_vnd: int, step_vnd: int = 1_000) -> int:
+    """Chọn giá ổn định trong khoảng và làm tròn theo bước giá."""
+    if minimum_vnd <= 0 or maximum_vnd < minimum_vnd:
+        raise ValueError("Khoảng giá tự động không hợp lệ.")
+    steps = (maximum_vnd - minimum_vnd) // step_vnd
+    offset = zlib.crc32(seed.encode("utf-8")) % (steps + 1)
+    return int(minimum_vnd + offset * step_vnd)
 
 
 def parse_product_image_filename(filename: str) -> tuple[str, int | None, int | None]:

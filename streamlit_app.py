@@ -20,6 +20,8 @@ from src.metrics import action_list, catalogue_issues, gini
 from src.menu_sales import combine_menu_sales, period_comparison, preparation_board, price_changes, product_performance
 from src.supplier_products import (
     INITIAL_UPLOADED_PRODUCTS,
+    automatic_price,
+    automatic_product_names,
     build_create_items_zip,
     extract_grab_categories,
     product_description,
@@ -556,14 +558,39 @@ elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ th
                 disabled=not folder_categories,
                 help="Ví dụ: Hoa chia buồn. Mọi sản phẩm trong lần tải thư mục này dùng cùng danh mục.",
             )
+            folder_name_mode = st.radio(
+                "3. Cách tạo tên sản phẩm",
+                ["Lấy tên từ file ảnh", "Tên danh mục + hậu tố tự nhiên"],
+                horizontal=True,
+                help="Tên tự động có dạng: Hoa chia buồn – Thành kính phân ưu.",
+            )
             folder_price_mode = st.radio(
-                "3. Cách nhập giá gốc",
-                ["Đọc số trong tên file", "Tự nhập trong bảng rà soát"],
+                "4. Cách nhập giá gốc",
+                ["Đọc số trong tên file", "Tự nhập trong bảng rà soát", "Tự động trong khoảng giá"],
                 horizontal=True,
                 help="Ở cách thứ nhất, 145 hoặc 145k được hiểu là 145.000 đồng; giá bán = giá gốc × hệ số.",
             )
+            auto_price_min = auto_price_max = 0
+            if folder_price_mode == "Tự động trong khoảng giá":
+                price_min_col, price_max_col = st.columns(2)
+                auto_price_min = price_min_col.number_input(
+                    "Giá bán nhỏ nhất",
+                    min_value=1_000,
+                    value=200_000,
+                    step=10_000,
+                    format="%d",
+                )
+                auto_price_max = price_max_col.number_input(
+                    "Giá bán lớn nhất",
+                    min_value=1_000,
+                    value=1_500_000,
+                    step=10_000,
+                    format="%d",
+                )
+                if auto_price_max < auto_price_min:
+                    st.error("Giá lớn nhất phải lớn hơn hoặc bằng giá nhỏ nhất.")
             folder_files = st.file_uploader(
-                "4. Chọn thư mục ảnh sản phẩm",
+                "5. Chọn thư mục ảnh sản phẩm",
                 type=["jpg", "jpeg", "png"],
                 accept_multiple_files="directory",
                 key="supplier_image_directory",
@@ -576,6 +603,25 @@ elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ th
                     folder_category,
                     folder_price_mode == "Đọc số trong tên file",
                 )
+                source_folder_names = folder_rows["Tên sản phẩm"].astype(str).copy()
+                if folder_name_mode == "Tên danh mục + hậu tố tự nhiên":
+                    folder_rows["Tên sản phẩm"] = automatic_product_names(folder_category, len(folder_rows))
+                    folder_rows["Mô tả"] = folder_rows["Tên sản phẩm"].map(
+                        lambda name: product_description(str(name), True)
+                    )
+                price_range_valid = True
+                if folder_price_mode == "Tự động trong khoảng giá":
+                    price_range_valid = auto_price_max >= auto_price_min
+                    if price_range_valid:
+                        automatic_selling_prices = [
+                            automatic_price(seed, int(auto_price_min), int(auto_price_max))
+                            for seed in source_folder_names
+                        ]
+                        folder_rows["Giá gốc (₫)"] = [
+                            round(selling_price / multiplier)
+                            for selling_price in automatic_selling_prices
+                        ]
+                        folder_rows = recalculate_prices(folder_rows, multiplier)
                 f1, f2, f3 = st.columns(3)
                 f1.metric("Sản phẩm nhận diện", len(folder_rows))
                 f2.metric("Ảnh hợp lệ", len(folder_images))
@@ -621,6 +667,7 @@ elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ th
                     not editable_folder_rows.empty
                     and not duplicate_edited_names
                     and not invalid_folder_rows.any()
+                    and price_range_valid
                 )
                 if st.button(
                     "Nạp các sản phẩm này vào danh sách tạo mới",
@@ -637,7 +684,7 @@ elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ th
                         lambda name: product_description(str(name), True)
                     )
                     renamed_images = {}
-                    for old_name, new_name in zip(folder_rows["Tên sản phẩm"], imported_rows["Tên sản phẩm"]):
+                    for old_name, new_name in zip(source_folder_names, imported_rows["Tên sản phẩm"]):
                         for slot in range(1, 5):
                             stored_image = folder_images.get((str(old_name), slot))
                             if stored_image is None:

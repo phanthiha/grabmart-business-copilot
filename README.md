@@ -105,6 +105,8 @@ Tài khoản dịch vụ cần quyền chạy BigQuery job và vai trò Data Edi
 ## Quy ước tạo sản phẩm từ thư mục ảnh
 
 - Mỗi lần chọn thư mục chỉ áp dụng **một danh mục Grab** cho toàn bộ sản phẩm. Ứng dụng đọc toàn bộ danh mục hiện hành từ `resources/department_list.csv` trong ZIP mẫu, ví dụ **Hoa chia buồn**.
+- Tên có thể lấy từ file ảnh hoặc tự sinh theo dạng **Danh mục – hậu tố tự nhiên**; ví dụ `Hoa chia buồn – Thành kính phân ưu`. Tên vẫn được phép sửa trước khi nạp.
+- Giá có ba chế độ: đọc số trong tên file, nhập thủ công từng dòng, hoặc tự chọn giá bán ổn định trong khoảng nhỏ nhất–lớn nhất do người dùng nhập. Giá gốc được suy ra theo hệ số giá bán và vẫn có thể rà soát lại.
 - `hoa_baby_trang_145_1.jpg` và `hoa_baby_trang_145_2.jpg` tạo một sản phẩm tên **Hoa baby trang**, giá gốc 145.000 đồng và hai ảnh.
 - Số cuối từ `1` đến `4` là thứ tự ảnh khi ngay trước đó có số giá; `145`, `145k` và `145.000` đều được hiểu là 145.000 đồng.
 - Nếu chọn nhập giá thủ công, người dùng điền giá gốc trong bảng rà soát; giá bán được tính theo hệ số của ứng dụng.
