@@ -20,10 +20,12 @@ from src.metrics import action_list, catalogue_issues, gini
 from src.menu_sales import combine_menu_sales, period_comparison, preparation_board, price_changes, product_performance
 from src.supplier_products import (
     INITIAL_UPLOADED_PRODUCTS,
+    ORCHID_VARIETIES,
     automatic_price,
     automatic_product_names,
     build_create_items_zip,
     extract_grab_categories,
+    orchid_product_table,
     product_description,
     products_from_image_files,
     recalculate_prices,
@@ -148,6 +150,7 @@ with st.sidebar:
         "Phân tích Menu Sales",
         "Tạo sản phẩm từ bảng giá",
         "Tạo sản phẩm từ thư mục ảnh",
+        "Tạo sản phẩm Lan Hồ Điệp",
         "MIWI & đánh giá khách hàng",
         "Phân tích thực nghiệm",
         "Khám phá bảng dữ liệu",
@@ -460,11 +463,13 @@ elif page == "Phân tích Menu Sales":
         else:
             st.info("Bắt đầu bằng cách tải file Menu Sales mới nhất. Có thể chọn nhiều file cùng lúc; ứng dụng sẽ cảnh báo phần bị chồng lặp.")
 
-elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ thư mục ảnh"}:
+elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ thư mục ảnh", "Tạo sản phẩm Lan Hồ Điệp"}:
     from_image_folder = page == "Tạo sản phẩm từ thư mục ảnh"
+    orchid_flow = page == "Tạo sản phẩm Lan Hồ Điệp"
+    guided_import = from_image_folder or orchid_flow
     st.header(
-        "Tạo sản phẩm hoa từ thư mục ảnh"
-        if from_image_folder else "Tạo sản phẩm hoa hàng loạt từ bảng giá nhà cung cấp"
+        "Tạo sản phẩm hoa từ thư mục ảnh" if from_image_folder
+        else ("Tạo sản phẩm Lan Hồ Điệp" if orchid_flow else "Tạo sản phẩm hoa hàng loạt từ bảng giá nhà cung cấp")
     )
     st.info(
         "Quy trình đúng định dạng Grab: tải ZIP mẫu **Tạo món hàng loạt** mới nhất → "
@@ -480,14 +485,16 @@ elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ th
             "[Waxflower – Royal Horticultural Society](https://www.rhs.org.uk/plants/62627/chamelaucium-uncinatum/details). "
             "Ứng dụng không tự thêm số cành, kích thước, xuất xứ, mùi hương hoặc độ bền khi bảng giá chưa cung cấp."
         )
-    if from_image_folder:
+    if orchid_flow:
+        st.warning("Chỉ những màu đã đối chiếu với ảnh thực tế mới được chọn mặc định. Ảnh tham chiếu trên Internet không thay thế ảnh sản phẩm của cửa hàng.")
+    elif from_image_folder:
         st.warning("Tên và giá tự động chỉ là dự thảo. Hãy đối chiếu mẫu ảnh, chi phí thực tế và mức giá thị trường trước khi tải lên GrabMerchant.")
     else:
         st.warning("Giá gốc trong ảnh đang được hiểu theo nghìn đồng và chưa rõ đơn vị bó/cành. Phải xác nhận với vựa trước khi tải lên GrabMerchant.")
     if not authorized:
         st.warning("Vui lòng đăng nhập bằng tài khoản được cấp quyền để tạo gói sản phẩm thật.")
     else:
-        flow_prefix = "folder" if from_image_folder else "supplier"
+        flow_prefix = "orchid" if orchid_flow else ("folder" if from_image_folder else "supplier")
         image_state_key = f"{flow_prefix}_product_images"
         uploaded_state_key = f"{flow_prefix}_uploaded_products"
         trial_order_key = f"{flow_prefix}_trial_product_order"
@@ -514,7 +521,7 @@ elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ th
                     # Lần chạy đầu có thể chưa có bảng; nút Lưu bên dưới sẽ khởi tạo bảng.
                     st.session_state.product_registry = pd.DataFrame()
                     st.session_state.product_registry_sync_error = str(exc)
-        if not from_image_folder:
+        if not from_image_folder and not orchid_flow:
             # Giữ ảnh đã tải nếu phiên cũ còn dùng tên "Hoa bi trắng".
             for slot in range(1, 5):
                 old_key = ("Hoa bi trắng", slot)
@@ -522,7 +529,7 @@ elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ th
                 if old_key in image_store and new_key not in image_store:
                     image_store[new_key] = image_store.pop(old_key)
         if uploaded_state_key not in st.session_state:
-            st.session_state[uploaded_state_key] = [] if from_image_folder else list(INITIAL_UPLOADED_PRODUCTS)
+            st.session_state[uploaded_state_key] = [] if guided_import else list(INITIAL_UPLOADED_PRODUCTS)
         uploaded_products = set(st.session_state[uploaded_state_key])
         multiplier = st.number_input("Hệ số giá bán", min_value=1.0, max_value=10.0, value=2.0, step=0.1, help="Giá bán = Giá gốc × Hệ số. Chưa bao gồm kiểm tra phí nền tảng và hao hụt.")
         folder_template = None
@@ -716,10 +723,103 @@ elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ th
                     st.session_state[trial_order_key] = []
                     st.rerun()
 
-        all_supplier_products = (
-            supplier_product_table(multiplier).iloc[0:0].copy()
-            if from_image_folder else supplier_product_table(multiplier)
-        )
+        orchid_products = pd.DataFrame()
+        if orchid_flow:
+            with st.container(border=True):
+                st.subheader("Bước 1 — Cấu hình danh mục Lan Hồ Điệp")
+                st.markdown(
+                    "Tạo đồng thời hai nhóm độc lập: **lan cắt cành** thuộc `Hoa cành/nhành lẻ` "
+                    "và **lan trồng chậu** thuộc `Hoa tự nhiên`. Tên sản phẩm luôn kèm màu, số cành và tên gợi nhớ."
+                )
+                orchid_colors = [color for color, _, _ in ORCHID_VARIETIES]
+                create_cut, create_potted = st.columns(2)
+                with create_cut:
+                    include_cut = st.checkbox("Tạo nhóm lan cắt cành", value=True)
+                    cut_colors = st.multiselect(
+                        "Màu lan cắt cành",
+                        orchid_colors,
+                        default=["hồng phấn"],
+                        disabled=not include_cut,
+                    )
+                    cut_price = st.number_input(
+                        "Giá bán một cành cắt",
+                        min_value=1_000,
+                        value=150_000,
+                        step=10_000,
+                        format="%d",
+                        disabled=not include_cut,
+                    )
+                with create_potted:
+                    include_potted = st.checkbox("Tạo nhóm lan trồng chậu", value=True)
+                    potted_colors = st.multiselect(
+                        "Màu lan trồng chậu",
+                        orchid_colors,
+                        default=["vàng"],
+                        disabled=not include_potted,
+                    )
+                    potted_counts = st.multiselect(
+                        "Số cành trong chậu",
+                        list(range(1, 11)),
+                        default=list(range(1, 11)),
+                        disabled=not include_potted,
+                    )
+                    potted_branch_price = st.number_input(
+                        "Giá bán tính cho mỗi cành trong chậu",
+                        min_value=1_000,
+                        value=150_000,
+                        step=10_000,
+                        format="%d",
+                        disabled=not include_potted,
+                    )
+                    pot_fee = st.number_input(
+                        "Phí chậu và công sắp xếp cộng thêm",
+                        min_value=0,
+                        value=0,
+                        step=10_000,
+                        format="%d",
+                        disabled=not include_potted,
+                        help="Giá chậu n cành = n × giá/cành + phí chậu và công sắp xếp.",
+                    )
+                chosen_colors = list(dict.fromkeys((cut_colors if include_cut else []) + (potted_colors if include_potted else [])))
+                verified_colors = set(st.multiselect(
+                    "Màu đã đối chiếu đúng với ảnh sản phẩm thực tế",
+                    chosen_colors,
+                    default=[],
+                    help="Chỉ chọn sau khi ảnh do cửa hàng hoặc nhà cung cấp cung cấp khớp chính xác màu và hoa văn.",
+                ))
+                orchid_frames = []
+                if include_cut and cut_colors:
+                    orchid_frames.append(orchid_product_table(
+                        "Cắt cành", cut_colors, [1], int(cut_price), 0, multiplier, verified_colors
+                    ))
+                if include_potted and potted_colors and potted_counts:
+                    orchid_frames.append(orchid_product_table(
+                        "Trồng chậu", potted_colors, potted_counts, int(potted_branch_price), int(pot_fee),
+                        multiplier, verified_colors,
+                    ))
+                if orchid_frames:
+                    orchid_products = pd.concat(orchid_frames, ignore_index=True)
+                    o1, o2, o3 = st.columns(3)
+                    o1.metric("Sản phẩm dự kiến", len(orchid_products))
+                    o2.metric("Đã đối chiếu màu", orchid_products["Tình trạng tên"].eq("Đã chuẩn hóa").sum())
+                    o3.metric("Cần đối chiếu màu", orchid_products["Tình trạng tên"].eq("Cần đối chiếu màu ảnh").sum())
+                    st.dataframe(
+                        orchid_products[["Tên sản phẩm", "Giá bán (₫)", "Danh mục Grab", "Tình trạng tên"]],
+                        width="stretch",
+                        hide_index=True,
+                        column_config={"Giá bán (₫)": st.column_config.NumberColumn(format="%,.0f ₫")},
+                    )
+                else:
+                    st.info("Hãy chọn ít nhất một màu và một dạng bán để tạo danh sách.")
+
+        if orchid_flow and orchid_products.empty:
+            orchid_products = supplier_product_table(multiplier).iloc[0:0].copy()
+        if orchid_flow:
+            all_supplier_products = orchid_products
+        elif from_image_folder:
+            all_supplier_products = supplier_product_table(multiplier).iloc[0:0].copy()
+        else:
+            all_supplier_products = supplier_product_table(multiplier)
         imported_products = st.session_state.get("folder_import_products", pd.DataFrame())
         if from_image_folder and not imported_products.empty:
             imported_products = recalculate_prices(imported_products, multiplier)
@@ -790,7 +890,7 @@ elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ th
 
         st.markdown(
             "### Bước 2 — Chọn sản phẩm vừa nạp"
-            if from_image_folder else "### Bước 1 — Chọn nhóm sản phẩm thử nghiệm"
+            if guided_import else "### Bước 1 — Chọn nhóm sản phẩm thử nghiệm"
         )
         available_supplier_products = all_supplier_products[
             ~all_supplier_products["Tên sản phẩm"].isin(uploaded_products)
@@ -822,7 +922,7 @@ elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ th
             st.warning("Chưa chọn sản phẩm thử nghiệm. Hãy chọn 3–5 sản phẩm trong ô phía trên.")
         st.markdown(
             "### Bước 3 — Rà soát tên, giá và mô tả"
-            if from_image_folder else "### Bước 2 — Rà soát tên, giá và mô tả"
+            if guided_import else "### Bước 2 — Rà soát tên, giá và mô tả"
         )
         supplier_editor = st.data_editor(
             base_supplier,
@@ -833,7 +933,9 @@ elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ th
                 "Chọn tạo": st.column_config.CheckboxColumn(required=True),
                 "Giá gốc (₫)": st.column_config.NumberColumn(format="%,.0f ₫", min_value=0),
                 "Giá bán (₫)": st.column_config.NumberColumn(format="%,.0f ₫"),
-                "Tình trạng tên": st.column_config.SelectboxColumn(options=["Cần xác minh với vựa", "Đã chuẩn hóa"], required=True),
+                "Tình trạng tên": st.column_config.SelectboxColumn(
+                    options=["Cần xác minh với vựa", "Cần đối chiếu màu ảnh", "Đã chuẩn hóa"], required=True
+                ),
                 "Tìm ảnh tham chiếu": st.column_config.LinkColumn("Tìm ảnh tham chiếu", display_text="Mở tìm kiếm ảnh ↗"),
             },
             key=f"{flow_prefix}_product_editor_v3",
@@ -848,7 +950,7 @@ elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ th
 
         st.markdown(
             "### Bước 4 — Bổ sung hoặc thay ảnh"
-            if from_image_folder else "### Bước 3 — Thêm ảnh theo từng sản phẩm"
+            if guided_import else "### Bước 3 — Thêm ảnh theo từng sản phẩm"
         )
         st.info("Liên kết tìm kiếm chỉ để nhận diện. Hãy tải lên ảnh do cửa hàng/vựa cung cấp hoặc ảnh có quyền sử dụng; không tự động sao chép ảnh Internet có bản quyền vào gian hàng.")
         st.caption("Mỗi sản phẩm có tối đa 4 ảnh. Có thể nhấp phải **Sao chép hình ảnh**, bấm vào vùng dán rồi nhấn **Ctrl+V**; hoặc kéo thả/chọn file JPG/PNG. Ứng dụng tự đặt tên an toàn.")
@@ -911,7 +1013,7 @@ elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ th
 
         st.markdown(
             "### Bước 5 — Kiểm tra mức độ hoàn thành"
-            if from_image_folder else "### Bước 4 — Kiểm tra mức độ hoàn thành"
+            if guided_import else "### Bước 4 — Kiểm tra mức độ hoàn thành"
         )
         progress_rows = []
         for _, product in selected_supplier.iterrows():
@@ -1062,7 +1164,7 @@ elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ th
         preview_products = [row for row in progress_rows if row["Ảnh"] != "0/4"]
         st.markdown(
             "### Bước 6 — Xem trước gian hàng Grab"
-            if from_image_folder else "### Bước 5 — Xem trước gian hàng Grab"
+            if guided_import else "### Bước 5 — Xem trước gian hàng Grab"
         )
         if not preview_products:
             st.info("Sản phẩm sẽ xuất hiện ở đây sau khi có ít nhất một ảnh.")
@@ -1091,7 +1193,7 @@ elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ th
 
         st.markdown(
             "### Bước 7 — Xuất gói Tạo món hàng loạt"
-            if from_image_folder else "### Bước 6 — Xuất gói Tạo món hàng loạt"
+            if guided_import else "### Bước 6 — Xuất gói Tạo món hàng loạt"
         )
         st.caption("Trên GrabMerchant, chọn Thực đơn → Cập nhật hàng loạt → Tạo món hàng loạt và tải mẫu ZIP mới nhất, sau đó đưa nguyên ZIP đó vào đây. Ứng dụng giữ nguyên dòng hướng dẫn, tên cột, readme và danh sách danh mục của mẫu.")
         if from_image_folder:
@@ -1099,7 +1201,11 @@ elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ th
             if create_template is not None:
                 st.success("Đang sử dụng ZIP mẫu đã tải ở Bước 1; không cần tải lại.")
         else:
-            create_template = st.file_uploader("Tải ZIP mẫu Tạo món hàng loạt của GrabMerchant", type=["zip"], key="grab_create_template")
+            create_template = st.file_uploader(
+                "Tải ZIP mẫu Tạo món hàng loạt của GrabMerchant",
+                type=["zip"],
+                key=f"{flow_prefix}_grab_create_template",
+            )
         if create_template is not None:
             if not selected_count or ready_count < selected_count:
                 st.error("Chưa thể xuất ZIP: hãy hoàn thành tất cả sản phẩm trong bảng tiến độ phía trên.")
@@ -1110,7 +1216,10 @@ elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ th
                     st.error(str(exc))
                 else:
                     st.success(f"Gói hợp lệ đã sẵn sàng cho {len(created_names):,} sản phẩm.")
-                    confirmed_create = st.checkbox("Tôi đã xác nhận tên, đơn vị mua, giá gốc, giá bán và quyền sử dụng ảnh", key="confirm_create_items")
+                    confirmed_create = st.checkbox(
+                        "Tôi đã xác nhận tên, đơn vị mua, giá gốc, giá bán và quyền sử dụng ảnh",
+                        key=f"{flow_prefix}_confirm_create_items",
+                    )
                     if confirmed_create:
                         st.download_button("Tải ZIP Tạo món hàng loạt", create_zip, "grab_create_items_supplier_flowers.zip", "application/zip", type="primary")
                         st.warning("Hãy tải thực đơn hiện tại để dự phòng và thử trước 3–5 sản phẩm. Grab không hỗ trợ hoàn tác cập nhật hàng loạt; chỉ xác nhận Thêm vào thực đơn khi trang kiểm tra không báo lỗi.")

@@ -51,6 +51,67 @@ RAW_ITEMS = [
 INITIAL_UPLOADED_PRODUCTS = ["Hoa baby trắng", "Cỏ tứ giác", "Jasmine lá", "Jasmine hoa"]
 
 
+ORCHID_VARIETIES = [
+    ("trắng", "Bạch Ngọc", "Cánh trắng thanh nhã, điểm môi vàng dịu. Thích hợp trang trí không gian hoặc làm quà tặng tinh tế."),
+    ("kem", "Ngà Thanh", "Sắc kem nhẹ nhàng, ấm áp và trang nhã. Lựa chọn dịu mắt cho góc làm việc hoặc quà tặng."),
+    ("hồng phấn", "Hồng Sương", "Cánh hồng phấn ánh tím, nổi bật với môi hoa đậm màu. Vẻ đẹp mềm mại cho món quà đầy yêu thương."),
+    ("hồng đào", "Đào Thắm", "Tông hồng đào ấm áp và tươi tắn. Thích hợp làm quà sinh nhật, cảm ơn hoặc trang trí góc yêu thích."),
+    ("tím gân", "Tím Vân", "Cánh tím nhạt với những đường gân mảnh nổi bật. Vẻ đẹp thanh lịch, có điểm nhấn khi ngắm gần."),
+    ("tím viền trắng", "Tím Ngọc", "Cánh tím hồng tô điểm bằng viền trắng duyên dáng. Sự kết hợp nổi bật cho quà tặng và trang trí."),
+    ("vàng", "Nắng Mai", "Sắc vàng sáng cùng môi hoa hồng đỏ tạo nét tươi vui. Thích hợp làm quà chúc mừng hoặc tô điểm không gian."),
+    ("vàng chấm", "Điểm Son", "Nền cánh vàng điểm những chấm màu tương phản. Dành cho người yêu nét đẹp sinh động và khác biệt."),
+    ("cam", "Nắng Ấm", "Sắc cam ấm áp và nổi bật. Thích hợp cho quà sinh nhật, chúc mừng hoặc trang trí."),
+    ("cam sọc", "Cam Vân", "Cánh hoa tông cam kết hợp họa tiết sọc bắt mắt. Điểm nhấn ấm áp cho không gian và những dịp tặng hoa."),
+    ("đỏ ruby", "Hồng Ngọc", "Tông đỏ ruby đậm tạo vẻ đẹp cuốn hút. Thích hợp làm quà trong những dịp kỷ niệm, chúc mừng."),
+    ("đỏ kẻ", "Đỏ Vân", "Hoa tông đỏ với họa tiết đường kẻ tạo nét riêng. Lựa chọn ấn tượng cho người yêu sắc hoa đậm."),
+    ("xanh bơ", "Thanh Ngọc", "Sắc xanh bơ dịu, phảng phất ánh vàng. Thích hợp tô điểm góc nhỏ hoặc làm quà thanh lịch."),
+    ("xanh táo", "Thanh Xuân", "Tông xanh táo tươi sáng tạo cảm giác mới mẻ. Lựa chọn khác biệt cho quà tặng và trang trí không gian."),
+]
+
+
+def orchid_product_table(
+    sale_type: str,
+    selected_colors: list[str],
+    branch_counts: list[int],
+    selling_price_per_branch: int,
+    pot_and_arrangement_fee: int,
+    multiplier: float = 2.0,
+    verified_colors: set[str] | None = None,
+) -> pd.DataFrame:
+    """Tạo danh mục lan hồ điệp cắt cành hoặc trồng chậu theo màu và số cành."""
+    verified_colors = verified_colors or set()
+    variety_map = {color: (suffix, description) for color, suffix, description in ORCHID_VARIETIES}
+    rows = []
+    counts = [1] if sale_type == "Cắt cành" else sorted(set(branch_counts))
+    category = "Hoa cành/nhành lẻ" if sale_type == "Cắt cành" else "Hoa tự nhiên"
+    for color in selected_colors:
+        suffix, description = variety_map[color]
+        for branch_count in counts:
+            if sale_type == "Cắt cành":
+                name = f"Hoa lan hồ điệp {color} cắt cành – 1 cành – {suffix}"
+                selling_price = int(selling_price_per_branch)
+                detail = "Một cành hoa cắt rời, phù hợp cắm bình hoặc phối cùng các loại hoa khác."
+            else:
+                name = f"Chậu lan hồ điệp {color} {branch_count} cành – {suffix}"
+                selling_price = int(selling_price_per_branch * branch_count + pot_and_arrangement_fee)
+                detail = f"Chậu lan gồm {branch_count} cành hoa; mẫu chậu và cách sắp xếp được đối chiếu theo ảnh thực tế."
+            cost = int(round(selling_price / multiplier))
+            verified = color in verified_colors
+            rows.append({
+                "Chọn tạo": verified,
+                "Tên sản phẩm": name,
+                "Giá gốc (₫)": cost,
+                "Hệ số giá": float(multiplier),
+                "Giá bán (₫)": int(round(cost * multiplier)),
+                "Danh mục Grab": category,
+                "Mô tả": f"{description} {detail}"[:300],
+                "Tên file ảnh 1": "", "Tên file ảnh 2": "", "Tên file ảnh 3": "", "Tên file ảnh 4": "",
+                "Tình trạng tên": "Đã chuẩn hóa" if verified else "Cần đối chiếu màu ảnh",
+                "Tìm ảnh tham chiếu": "https://www.google.com/search?tbm=isch&q=" + urllib.parse.quote_plus(name),
+            })
+    return pd.DataFrame(rows)
+
+
 def product_description(name: str, confirmed: bool) -> str:
     """Sinh mô tả catalogue thận trọng, không tự suy đoán quy cách bán."""
     lower = name.casefold()

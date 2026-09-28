@@ -4,6 +4,8 @@
 
 ## Chức năng
 
+- Tạo riêng danh mục Lan Hồ Điệp theo 14 màu/hoa văn: phân biệt cắt cành (`Hoa cành/nhành lẻ`) và trồng chậu (`Hoa tự nhiên`), ghép số cành, tính giá theo công thức, khóa các màu chưa đối chiếu ảnh và xuất ZIP theo mẫu GrabMerchant.
+
 - Dashboard doanh số, giao dịch và giờ cao điểm.
 - Ma trận ABC–XYZ và danh sách sản phẩm cần ưu tiên rà soát.
 - Kiểm toán trùng tên, mô tả, ảnh mẫu và barcode không hợp lệ; SKU/barcode để trống không bị xem là lỗi đối với sản phẩm hoa làm theo mẫu.
