@@ -764,21 +764,21 @@ elif page in {"Tạo sản phẩm từ bảng giá", "Tạo sản phẩm từ th
                         disabled=not include_potted,
                     )
                     potted_branch_price = st.number_input(
-                        "Giá bán tính cho mỗi cành trong chậu",
+                        "Giá vốn mỗi cành (đã bao gồm chậu)",
                         min_value=1_000,
-                        value=150_000,
+                        value=190_000,
                         step=10_000,
                         format="%d",
                         disabled=not include_potted,
                     )
                     pot_fee = st.number_input(
-                        "Phí chậu và công sắp xếp cộng thêm",
+                        "Chi phí bổ sung ngoài mức 190.000đ/cành",
                         min_value=0,
                         value=0,
                         step=10_000,
                         format="%d",
                         disabled=not include_potted,
-                        help="Giá chậu n cành = n × giá/cành + phí chậu và công sắp xếp.",
+                        help="Để bằng 0 khi báo giá 190.000đ/cành đã bao gồm chậu. Giá bán = (số cành × giá vốn/cành + chi phí bổ sung) × hệ số giá.",
                     )
                 chosen_colors = list(dict.fromkeys((cut_colors if include_cut else []) + (potted_colors if include_potted else [])))
                 verified_colors = set(st.multiselect(

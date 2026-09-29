@@ -73,8 +73,8 @@ def orchid_product_table(
     sale_type: str,
     selected_colors: list[str],
     branch_counts: list[int],
-    selling_price_per_branch: int,
-    pot_and_arrangement_fee: int,
+    branch_amount_vnd: int,
+    additional_cost_vnd: int,
     multiplier: float = 2.0,
     verified_colors: set[str] | None = None,
 ) -> pd.DataFrame:
@@ -89,13 +89,14 @@ def orchid_product_table(
         for branch_count in counts:
             if sale_type == "Cắt cành":
                 name = f"Hoa lan hồ điệp {color} cắt cành – 1 cành – {suffix}"
-                selling_price = int(selling_price_per_branch)
+                selling_price = int(branch_amount_vnd)
+                cost = int(round(selling_price / multiplier))
                 detail = "Một cành hoa cắt rời, phù hợp cắm bình hoặc phối cùng các loại hoa khác."
             else:
                 name = f"Chậu lan hồ điệp {color} {branch_count} cành – {suffix}"
-                selling_price = int(selling_price_per_branch * branch_count + pot_and_arrangement_fee)
+                cost = int(branch_amount_vnd * branch_count + additional_cost_vnd)
+                selling_price = int(round(cost * multiplier))
                 detail = f"Chậu lan gồm {branch_count} cành hoa; mẫu chậu và cách sắp xếp được đối chiếu theo ảnh thực tế."
-            cost = int(round(selling_price / multiplier))
             verified = color in verified_colors
             rows.append({
                 "Chọn tạo": verified,
