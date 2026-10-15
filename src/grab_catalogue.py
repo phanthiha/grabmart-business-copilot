@@ -25,6 +25,66 @@ VALID_ACTIONS = {"KEEP", "UPDATE", "HIDE", "DISCONTINUE", "REVIEW"}
 VALID_STATUSES = {"AVAILABLE", "UNAVAILABLE_TODAY", "UNAVAILABLE_PERMANENTLY", "HIDDEN"}
 
 
+def option_group_issues(catalogue: pd.DataFrame) -> pd.DataFrame:
+    """Phát hiện chuỗi OptionGroup sai định dạng phân cách của Grab."""
+    columns = [column for column in catalogue.columns if re.fullmatch(r"OptionGroup\d+", column)]
+    issues: list[dict[str, str | int]] = []
+    for row_number, row in catalogue.iloc[1:].iterrows():
+        for column in columns:
+            value = str(row.get(column, "")).strip()
+            if not value:
+                continue
+            parts = value.split("##", 2)
+            if len(parts) != 3:
+                issues.append({
+                    "Dòng": row_number + 2,
+                    "ItemID": str(row.get(ITEM_ID, "")),
+                    "Cột": column,
+                    "Lỗi": "Thiếu cấu trúc Tên##Min-Max##Lựa chọn:Giá",
+                })
+                continue
+            for option_number, option in enumerate(parts[2].split("#"), start=1):
+                if option.count(":") != 1:
+                    issues.append({
+                        "Dòng": row_number + 2,
+                        "ItemID": str(row.get(ITEM_ID, "")),
+                        "Cột": f"{column} Option{option_number}",
+                        "Lỗi": "Tên lựa chọn chứa dấu ':' hoặc thiếu dấu phân cách giá",
+                    })
+    return pd.DataFrame(issues, columns=["Dòng", "ItemID", "Cột", "Lỗi"])
+
+
+def repair_option_group_delimiters(catalogue: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Thay ':' trong tên lựa chọn bằng ' - ', giữ ':' cuối cùng trước giá."""
+    repaired = catalogue.copy()
+    columns = [column for column in repaired.columns if re.fullmatch(r"OptionGroup\d+", column)]
+    changes: list[dict[str, str]] = []
+    for row_number, row in repaired.iloc[1:].iterrows():
+        for column in columns:
+            original = str(row.get(column, ""))
+            parts = original.split("##", 2)
+            if not original.strip() or len(parts) != 3:
+                continue
+            options: list[str] = []
+            changed = False
+            for option in parts[2].split("#"):
+                if option.count(":") > 1:
+                    name, price = option.rsplit(":", 1)
+                    option = f"{name.replace(':', ' - ')}:{price}"
+                    changed = True
+                options.append(option)
+            if changed:
+                new_value = "##".join([parts[0], parts[1], "#".join(options)])
+                repaired.at[row_number, column] = new_value
+                changes.append({
+                    "ItemID": str(row.get(ITEM_ID, "")),
+                    "Cột": column,
+                    "Giá trị cũ": original,
+                    "Giá trị mới": new_value,
+                })
+    return repaired, pd.DataFrame(changes, columns=["ItemID", "Cột", "Giá trị cũ", "Giá trị mới"])
+
+
 @dataclass
 class GrabMenuPackage:
     members: dict[str, bytes]

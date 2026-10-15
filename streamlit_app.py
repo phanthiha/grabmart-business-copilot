@@ -13,8 +13,10 @@ from src.grab_catalogue import (
     build_grab_zip,
     catalogue_audit as audit_grab_package,
     make_review_sheet,
+    option_group_issues,
     read_grab_zip,
     read_review_csv,
+    repair_option_group_delimiters,
     validate_review,
 )
 from src.data import load_data
@@ -428,6 +430,21 @@ elif page == "Cập nhật giá hàng loạt":
                 p3.metric("Danh mục", f"{price_products['*GrabCategoryName'].nunique():,}")
                 p4.metric("Giá hợp lệ", f"{valid_price_mask.sum():,}/{len(price_products):,}")
 
+                option_issues = option_group_issues(price_package.catalogue)
+                repair_invalid_options = False
+                if not option_issues.empty:
+                    st.warning(
+                        f"Phát hiện {len(option_issues):,} lựa chọn trong OptionGroup sai dấu phân cách. "
+                        "Grab sẽ từ chối cả dòng sản phẩm dù cột giá mới hợp lệ."
+                    )
+                    st.dataframe(option_issues, width="stretch", hide_index=True)
+                    repair_invalid_options = st.checkbox(
+                        "Tự thay dấu ':' nằm trong tên lựa chọn bằng ' - ' khi xuất ZIP",
+                        value=True,
+                        help="Chỉ sửa dấu trong tên; dấu ':' cuối cùng trước giá và mức giá tùy chọn được giữ nguyên.",
+                        key=f"bulk_price_repair_options_{price_shop_key}",
+                    )
+
                 st.markdown("### 2. Chọn phạm vi cập nhật")
                 available_statuses = sorted(price_products["*AvailableStatus"].astype(str).unique())
                 selected_statuses = st.multiselect(
@@ -558,6 +575,10 @@ elif page == "Cập nhật giá hàng loạt":
                             st.error("Có sản phẩm tăng quá 49%; hãy giảm mức điều chỉnh hoặc chia nhóm giá nhỏ hơn.")
                         else:
                             updated_prices, price_change_log = apply_review(price_package, price_review)
+                            option_change_log = pd.DataFrame()
+                            if repair_invalid_options:
+                                updated_prices, option_change_log = repair_option_group_delimiters(updated_prices)
+                            remaining_option_issues = option_group_issues(updated_prices)
                             st.download_button(
                                 "Tải bảng xem trước giá CSV",
                                 price_preview.to_csv(index=False).encode("utf-8-sig"),
@@ -571,9 +592,25 @@ elif page == "Cập nhật giá hàng loạt":
                                 )
                             price_confirmed = st.checkbox(
                                 f"Tôi đã kiểm tra giá mới của {len(price_preview):,} sản phẩm và xác nhận tạo ZIP",
-                                disabled=price_change_log.empty,
+                                disabled=price_change_log.empty or not remaining_option_issues.empty,
                                 key=f"bulk_price_confirm_{price_shop_key}",
                             )
+                            if not remaining_option_issues.empty:
+                                st.error(
+                                    "ZIP chưa thể xuất vì OptionGroup vẫn còn dữ liệu sai định dạng. "
+                                    "Hãy bật tùy chọn tự sửa hoặc tải thực đơn mới đã được sửa trên GrabMerchant."
+                                )
+                            elif not option_change_log.empty:
+                                st.success(
+                                    f"Sẽ sửa dấu phân cách cho {len(option_change_log):,} ô OptionGroup; "
+                                    "tên lựa chọn và giá tùy chọn vẫn được giữ nguyên."
+                                )
+                                st.download_button(
+                                    "Tải nhật ký sửa OptionGroup",
+                                    option_change_log.to_csv(index=False).encode("utf-8-sig"),
+                                    f"{price_shop_key}_option_group_repairs.csv",
+                                    "text/csv",
+                                )
                             if price_confirmed and not price_change_log.empty:
                                 bulk_price_zip = build_grab_zip(price_package, updated_prices)
                                 stem = price_package.csv_name.rsplit(".", 1)[0]
