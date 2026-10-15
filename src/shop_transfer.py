@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import io
 import re
+import urllib.parse
+import urllib.request
 import zipfile
 
 import pandas as pd
+from PIL import Image, UnidentifiedImageError
 
 from src.grab_catalogue import GrabMenuPackage
 
@@ -68,14 +71,76 @@ def source_image_assets(package: GrabMenuPackage) -> tuple[dict[str, bytes], dic
     return assets, aliases
 
 
-def transfer_review(package: GrabMenuPackage, item_ids: list[str], target_categories: list[str]) -> pd.DataFrame:
+def download_grab_image_assets(
+    package: GrabMenuPackage,
+    item_ids: list[str],
+    max_total_bytes: int = 150 * 1024 * 1024,
+) -> tuple[dict[str, bytes], dict[str, str], list[str]]:
+    """Tải ảnh công khai từ CDN Grab, xác thực nội dung và chuyển thành JPEG cho ZIP tạo món."""
+    allowed_hosts = {"huawei-food-cms.grab.com", "food-cms.grab.com"}
+    chosen = package.products.loc[package.products["*ItemID"].astype(str).isin(item_ids)]
+    assets, aliases = source_image_assets(package)
+    warnings: list[str] = []
+    total = sum(len(content) for content in assets.values())
+    for _, product in chosen.iterrows():
+        item_id = re.sub(r"[^A-Za-z0-9_-]+", "_", str(product.get("*ItemID", "item")))
+        for slot in range(1, 5):
+            source = str(product.get(f"Photo{slot}", "")).strip()
+            if not source or source in aliases:
+                continue
+            parsed = urllib.parse.urlparse(source)
+            if parsed.scheme != "https" or parsed.hostname not in allowed_hosts:
+                warnings.append(f"{item_id} Photo{slot}: bỏ qua URL không thuộc CDN ảnh Grab")
+                continue
+            try:
+                request = urllib.request.Request(source, headers={"User-Agent": "GrabMart-Catalogue-Transfer/1.0"})
+                with urllib.request.urlopen(request, timeout=20) as response:
+                    raw = response.read(8 * 1024 * 1024 + 1)
+                if len(raw) > 8 * 1024 * 1024:
+                    raise ValueError("ảnh nguồn vượt 8 MB")
+                with Image.open(io.BytesIO(raw)) as image:
+                    image.load()
+                    if image.width < 100 or image.height < 100:
+                        raise ValueError("kích thước ảnh quá nhỏ")
+                    converted = image.convert("RGB")
+                    converted.thumbnail((2000, 2000))
+                    output = io.BytesIO()
+                    quality = 90
+                    while True:
+                        output.seek(0)
+                        output.truncate(0)
+                        converted.save(output, format="JPEG", quality=quality, optimize=True)
+                        if output.tell() <= 2 * 1024 * 1024 or quality <= 60:
+                            break
+                        quality -= 10
+                    content = output.getvalue()
+                if len(content) > 2 * 1024 * 1024:
+                    raise ValueError("không thể nén ảnh xuống dưới 2 MB")
+                if total + len(content) > max_total_bytes:
+                    raise ValueError("tổng ảnh đã đạt giới hạn 150 MB")
+                filename = f"{item_id}_{slot}.jpg"
+                assets[filename] = content
+                aliases[source] = filename
+                total += len(content)
+            except (OSError, ValueError, UnidentifiedImageError) as exc:
+                warnings.append(f"{item_id} Photo{slot}: {exc}")
+    return assets, aliases, warnings
+
+
+def transfer_review(
+    package: GrabMenuPackage,
+    item_ids: list[str],
+    target_categories: list[str],
+    image_aliases: dict[str, str] | None = None,
+) -> pd.DataFrame:
     selected = package.products.loc[package.products["*ItemID"].astype(str).isin(item_ids)].copy()
     if selected.empty:
         return pd.DataFrame()
     valid_categories = set(target_categories)
     fallback = target_categories[0] if target_categories else ""
     rows: list[dict[str, object]] = []
-    _, aliases = source_image_assets(package)
+    _, local_aliases = source_image_assets(package)
+    aliases = {**local_aliases, **(image_aliases or {})}
     option_columns = [column for column in selected.columns if column.startswith("OptionGroup")]
     for _, source in selected.iterrows():
         source_category = str(source.get("*GrabCategoryName", "")).strip()

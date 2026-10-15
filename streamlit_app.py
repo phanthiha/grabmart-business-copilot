@@ -23,7 +23,12 @@ from src.data import load_data
 from src.clipboard_image import decode_pasted_image, paste_image_zone
 from src.metrics import action_list, catalogue_issues, gini
 from src.menu_sales import combine_menu_sales, period_comparison, preparation_board, price_changes, product_performance
-from src.shop_transfer import source_image_assets, target_template_identity, transfer_review
+from src.shop_transfer import (
+    download_grab_image_assets,
+    source_image_assets,
+    target_template_identity,
+    transfer_review,
+)
 from src.supplier_products import (
     INITIAL_UPLOADED_PRODUCTS,
     ORCHID_VARIETIES,
@@ -699,12 +704,51 @@ elif page == "Sao chép sản phẩm giữa shop":
                         key=f"shop_transfer_items_{transfer_source.store_id}_{target_store_id}",
                     )
                     if selected_transfer_ids:
+                        selection_signature = tuple(sorted(selected_transfer_ids))
+                        include_cdn_images = st.checkbox(
+                            "Tải ảnh hiện tại từ CDN Grab và đóng gói lại cho shop đích",
+                            value=True,
+                            help=(
+                                "Chỉ tải URL HTTPS thuộc food-cms.grab.com hoặc huawei-food-cms.grab.com; "
+                                "ảnh được xác thực, chuyển JPEG và giới hạn 2 MB."
+                            ),
+                            key=f"shop_transfer_include_images_{transfer_source.store_id}_{target_store_id}",
+                        )
+                        image_state_key = f"shop_transfer_images_{transfer_source.store_id}_{target_store_id}"
+                        if include_cdn_images and st.button(
+                            "Tải và kiểm tra ảnh của sản phẩm đã chọn",
+                            key=f"shop_transfer_download_images_{transfer_source.store_id}_{target_store_id}",
+                        ):
+                            with st.spinner("Đang tải, xác thực và nén ảnh từ CDN Grab..."):
+                                downloaded_assets, downloaded_aliases, image_warnings = download_grab_image_assets(
+                                    transfer_source, selected_transfer_ids
+                                )
+                            st.session_state[image_state_key] = {
+                                "selection": selection_signature,
+                                "assets": downloaded_assets,
+                                "aliases": downloaded_aliases,
+                                "warnings": image_warnings,
+                            }
+                        image_state = st.session_state.get(image_state_key, {})
+                        image_ready = bool(
+                            include_cdn_images and image_state.get("selection") == selection_signature
+                        )
+                        if include_cdn_images and not image_ready:
+                            st.info("Bấm “Tải và kiểm tra ảnh” trước khi xuất ZIP để chuyển ảnh sang shop đích.")
+                        transfer_assets = image_state.get("assets", source_assets) if image_ready else source_assets
+                        transfer_aliases = image_state.get("aliases", {}) if image_ready else {}
+                        if image_ready:
+                            image_warnings = image_state.get("warnings", [])
+                            st.success(f"Đã chuẩn bị {len(transfer_assets):,} ảnh để đóng gói.")
+                            if image_warnings:
+                                with st.expander(f"{len(image_warnings):,} ảnh không tải được"):
+                                    st.write(image_warnings)
                         repaired_catalogue, transfer_option_log = repair_option_group_delimiters(
                             transfer_source.catalogue
                         )
                         transfer_source.catalogue = repaired_catalogue
                         transfer_table = transfer_review(
-                            transfer_source, selected_transfer_ids, target_categories
+                            transfer_source, selected_transfer_ids, target_categories, transfer_aliases
                         )
                         st.markdown("### 4. Kiểm tra và chỉnh thông tin shop đích")
                         st.caption(
@@ -749,7 +793,7 @@ elif page == "Sao chép sản phẩm giữa shop":
                         if confirm_transfer:
                             try:
                                 transfer_zip, transferred_names = build_create_items_zip(
-                                    target_upload.getvalue(), transfer_editor, source_assets
+                                    target_upload.getvalue(), transfer_editor, transfer_assets
                                 )
                             except ValueError as exc:
                                 st.error(str(exc))
