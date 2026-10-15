@@ -480,6 +480,12 @@ def build_create_items_zip(template_raw: bytes, products: pd.DataFrame, images: 
             row["BarcodeNumber"] = ""
         if "SKUNumber" in row:
             row["SKUNumber"] = ""
+        # Luồng sao chép giữa shop có thể chuyển nhóm tùy chọn đã kiểm tra từ
+        # shop nguồn. Các luồng tạo sản phẩm khác không có các cột này nên
+        # vẫn để trống như trước.
+        for option_column in (column for column in template.columns if column.startswith("OptionGroup")):
+            if option_column in product.index:
+                row[option_column] = str(product.get(option_column, "")).strip()
         for slot in range(1, 5):
             photo_column = f"Photo{slot}"
             source_column = f"Tên file ảnh {slot}"

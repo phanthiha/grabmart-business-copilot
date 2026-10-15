@@ -23,6 +23,7 @@ from src.data import load_data
 from src.clipboard_image import decode_pasted_image, paste_image_zone
 from src.metrics import action_list, catalogue_issues, gini
 from src.menu_sales import combine_menu_sales, period_comparison, preparation_board, price_changes, product_performance
+from src.shop_transfer import source_image_assets, target_template_identity, transfer_review
 from src.supplier_products import (
     INITIAL_UPLOADED_PRODUCTS,
     ORCHID_VARIETIES,
@@ -153,6 +154,7 @@ with st.sidebar:
         "Danh mục ABC–XYZ",
         "Kiểm toán catalogue",
         "Cập nhật giá hàng loạt",
+        "Sao chép sản phẩm giữa shop",
         "Phân tích Menu Sales",
         "Tạo sản phẩm từ bảng giá",
         "Tạo sản phẩm từ thư mục ảnh",
@@ -630,6 +632,145 @@ elif page == "Cập nhật giá hàng loạt":
                                 )
                                 st.warning(
                                     "Tải ZIP lên GrabMerchant và kiểm tra lại tổng số sản phẩm, giá cũ/giá mới trước khi bấm Áp dụng."
+                                )
+
+elif page == "Sao chép sản phẩm giữa shop":
+    st.header("Sao chép sản phẩm giữa hai shop GrabMerchant")
+    st.info(
+        "Tải ZIP thực đơn của shop nguồn và ZIP mẫu Tạo món hàng loạt của shop đích. "
+        "Ứng dụng tạo sản phẩm mới cho shop đích; không sao chép ItemID của shop nguồn."
+    )
+    st.warning(
+        "Ảnh dạng URL food-cms của shop nguồn không được chuyển sang shop khác. "
+        "Chỉ ảnh thực sự nằm trong thư mục images của ZIP nguồn mới được đóng gói lại."
+    )
+    if not authorized:
+        st.warning("Vui lòng đăng nhập bằng tài khoản được cấp quyền để sử dụng chức năng chuyển shop.")
+    else:
+        source_col, target_col = st.columns(2)
+        with source_col:
+            source_upload = st.file_uploader(
+                "1. ZIP thực đơn shop nguồn",
+                type=["zip"],
+                key="shop_transfer_source_zip",
+            )
+        with target_col:
+            target_upload = st.file_uploader(
+                "2. ZIP mẫu Tạo món hàng loạt của shop đích",
+                type=["zip"],
+                key="shop_transfer_target_zip",
+            )
+        if source_upload is not None and target_upload is not None:
+            try:
+                transfer_source = read_grab_zip(source_upload.getvalue())
+                target_store_id, target_categories = target_template_identity(target_upload.getvalue())
+                # Xác nhận đây thật sự là mẫu tạo món trước khi người dùng biên tập lâu.
+                extract_grab_categories(target_upload.getvalue())
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                if target_store_id == transfer_source.store_id:
+                    st.error("Shop nguồn và shop đích đang có cùng StoreID. Hãy tải mẫu từ một shop khác.")
+                else:
+                    source_assets, _ = source_image_assets(transfer_source)
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("Shop nguồn", transfer_source.store_id)
+                    c2.metric("Shop đích", target_store_id)
+                    c3.metric("Sản phẩm nguồn", f"{len(transfer_source.products):,}")
+                    c4.metric("Ảnh đóng gói được", f"{len(source_assets):,}")
+                    if target_store_id == "Không xác định từ tên mẫu":
+                        st.warning(
+                            "Không đọc được StoreID từ tên ZIP shop đích. Hãy kiểm tra lại tài khoản/shop "
+                            "đang mở trên GrabMerchant trước khi tải ZIP kết quả lên."
+                        )
+
+                    source_products = transfer_source.products.copy()
+                    product_labels = {
+                        str(row["*ItemID"]): (
+                            f"{row['*ItemName']} · {row['*GrabCategoryName']} · "
+                            f"{int(float(row['*Price'])):,.0f} ₫"
+                        )
+                        for _, row in source_products.iterrows()
+                    }
+                    selected_transfer_ids = st.multiselect(
+                        "3. Chọn sản phẩm cần tạo tại shop đích",
+                        list(product_labels),
+                        format_func=lambda item_id: product_labels[item_id],
+                        key=f"shop_transfer_items_{transfer_source.store_id}_{target_store_id}",
+                    )
+                    if selected_transfer_ids:
+                        repaired_catalogue, transfer_option_log = repair_option_group_delimiters(
+                            transfer_source.catalogue
+                        )
+                        transfer_source.catalogue = repaired_catalogue
+                        transfer_table = transfer_review(
+                            transfer_source, selected_transfer_ids, target_categories
+                        )
+                        st.markdown("### 4. Kiểm tra và chỉnh thông tin shop đích")
+                        st.caption(
+                            "Có thể đổi tên, giá, danh mục và mô tả. ItemID nguồn chỉ dùng đối chiếu; "
+                            "Grab sẽ tạo ItemID mới tại shop đích."
+                        )
+                        transfer_editor = st.data_editor(
+                            transfer_table,
+                            width="stretch",
+                            hide_index=True,
+                            disabled=["ItemID nguồn", "Danh mục nguồn", "Tình trạng tên"],
+                            column_config={
+                                "Chọn tạo": st.column_config.CheckboxColumn(required=True),
+                                "Giá bán (₫)": st.column_config.NumberColumn(min_value=1, step=1_000, format="%,.0f ₫"),
+                                "Danh mục Grab": st.column_config.SelectboxColumn(options=target_categories, required=True),
+                                "Mô tả": st.column_config.TextColumn(max_chars=300),
+                            },
+                            key=f"shop_transfer_editor_{transfer_source.store_id}_{target_store_id}",
+                        )
+                        selected_for_transfer = transfer_editor[transfer_editor["Chọn tạo"].astype(bool)]
+                        missing_photo_count = int(
+                            selected_for_transfer[[f"Tên file ảnh {slot}" for slot in range(1, 5)]]
+                            .astype(str).apply(lambda row: row.str.strip().eq("").all(), axis=1).sum()
+                        )
+                        s1, s2, s3 = st.columns(3)
+                        s1.metric("Sản phẩm sẽ tạo", f"{len(selected_for_transfer):,}")
+                        s2.metric("Không có ảnh đóng gói", f"{missing_photo_count:,}")
+                        s3.metric("OptionGroup được sửa", f"{len(transfer_option_log):,}")
+                        if missing_photo_count:
+                            st.warning(
+                                f"Có {missing_photo_count:,} sản phẩm chưa có file ảnh trong ZIP nguồn. "
+                                "Sản phẩm vẫn có thể được tạo không ảnh hoặc cần bổ sung ảnh trong GrabMerchant sau đó."
+                            )
+                        if not transfer_option_log.empty:
+                            st.success(
+                                "Đã sửa dấu ':' thừa trong OptionGroup trước khi chuyển; giá tùy chọn được giữ nguyên."
+                            )
+                        confirm_transfer = st.checkbox(
+                            "Tôi xác nhận có quyền quản lý hai shop và đã kiểm tra tên, giá, danh mục, ảnh",
+                            key=f"shop_transfer_confirm_{transfer_source.store_id}_{target_store_id}",
+                        )
+                        if confirm_transfer:
+                            try:
+                                transfer_zip, transferred_names = build_create_items_zip(
+                                    target_upload.getvalue(), transfer_editor, source_assets
+                                )
+                            except ValueError as exc:
+                                st.error(str(exc))
+                            else:
+                                safe_target = re.sub(r"[^A-Za-z0-9_-]+", "_", target_store_id)
+                                st.success(
+                                    f"Đã tạo gói cho {len(transferred_names):,} sản phẩm. "
+                                    "Hãy thử 3–5 sản phẩm trước khi chuyển toàn bộ."
+                                )
+                                st.download_button(
+                                    "Tải ZIP tạo sản phẩm cho shop đích",
+                                    transfer_zip,
+                                    f"{safe_target}_create_items_from_{transfer_source.store_id}.zip",
+                                    "application/zip",
+                                    type="primary",
+                                )
+                                st.download_button(
+                                    "Tải bảng đối chiếu nguồn–đích",
+                                    selected_for_transfer.to_csv(index=False).encode("utf-8-sig"),
+                                    f"{safe_target}_transfer_review.csv",
+                                    "text/csv",
                                 )
 
 elif page == "Phân tích Menu Sales":
