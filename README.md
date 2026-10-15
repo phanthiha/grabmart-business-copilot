@@ -9,6 +9,7 @@
 - Dashboard doanh số, giao dịch và giờ cao điểm.
 - Ma trận ABC–XYZ và danh sách sản phẩm cần ưu tiên rà soát.
 - Kiểm toán trùng tên, mô tả, ảnh mẫu và barcode không hợp lệ; SKU/barcode để trống không bị xem là lỗi đối với sản phẩm hoa làm theo mẫu.
+- Cập nhật giá hàng loạt theo danh mục, nhóm từ khóa, từng sản phẩm hoặc toàn bộ thực đơn; hỗ trợ tăng/giảm theo phần trăm hoặc số tiền, xem trước và chặn mọi lần tăng quá 49% giá hiện tại.
 - Nhận gói ZIP thực đơn mới nhất từ GrabMerchant, chỉnh sửa trực tiếp trên form hoặc bằng phiếu CSV, kiểm tra thay đổi và tạo lại ZIP đúng cấu trúc để cập nhật hàng loạt.
 - Phân tích nhiều file Menu Sales Việt/Anh, phát hiện giai đoạn chồng lặp, so sánh kỳ, đánh giá sản phẩm, lập bảng chuẩn bị hoa và đối chiếu với catalogue.
 - Chức năng **Tạo sản phẩm từ bảng giá**: tạo dự thảo từ danh sách nhà cung cấp, tính giá bán theo hệ số, gắn ảnh được phép sử dụng và điền vào mẫu ZIP chính thức.

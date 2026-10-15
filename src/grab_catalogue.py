@@ -151,6 +151,60 @@ def make_review_sheet(products: pd.DataFrame, mask: pd.Series, issue: str) -> pd
     })
 
 
+def build_bulk_price_review(
+    products: pd.DataFrame,
+    mask: pd.Series,
+    direction: str,
+    adjustment_type: str,
+    adjustment_value: float,
+    rounding_step: int = 1_000,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Lập phiếu UPDATE giá và bảng xem trước, không tự thay đổi catalogue."""
+    if direction not in {"Tăng", "Giảm"}:
+        raise ValueError("Chiều điều chỉnh giá không hợp lệ.")
+    if adjustment_type not in {"Phần trăm", "Số tiền cố định"}:
+        raise ValueError("Loại điều chỉnh giá không hợp lệ.")
+    if adjustment_value < 0:
+        raise ValueError("Mức điều chỉnh không được âm.")
+    if direction == "Tăng" and adjustment_type == "Phần trăm" and adjustment_value > 49:
+        raise ValueError("Grab không cho phép tăng quá 49% giá hiện tại trong một lần cập nhật.")
+    if rounding_step < 1:
+        raise ValueError("Bước làm tròn phải từ 1 đồng trở lên.")
+
+    selected = products.loc[mask].copy()
+    if selected.empty:
+        return make_review_sheet(products, mask, "Cập nhật giá hàng loạt"), pd.DataFrame()
+    current = pd.to_numeric(selected["*Price"], errors="coerce")
+    if current.isna().any() or current.le(0).any():
+        raise ValueError("Danh sách đã chọn có giá hiện tại trống, không phải số hoặc không lớn hơn 0.")
+
+    sign = 1 if direction == "Tăng" else -1
+    if adjustment_type == "Phần trăm":
+        proposed_raw = current * (1 + sign * adjustment_value / 100)
+    else:
+        proposed_raw = current + sign * adjustment_value
+    proposed = ((proposed_raw / rounding_step).round() * rounding_step).astype("int64")
+    if proposed.le(0).any():
+        raise ValueError("Mức giảm làm cho ít nhất một sản phẩm có giá mới không lớn hơn 0.")
+
+    actual_change_pct = (proposed - current) / current * 100
+    within_limit = actual_change_pct.le(49.000001)
+    review = make_review_sheet(products, mask, "Cập nhật giá hàng loạt")
+    review["Action"] = "UPDATE"
+    review["ProposedPrice"] = proposed.astype(str).values
+    preview = pd.DataFrame({
+        "ItemID": selected[ITEM_ID].values,
+        "Tên sản phẩm": selected["*ItemName"].values,
+        "Danh mục": selected["*GrabCategoryName"].values,
+        "Giá hiện tại": current.astype("int64").values,
+        "Giá mới": proposed.values,
+        "Chênh lệch": (proposed - current).astype("int64").values,
+        "Thay đổi (%)": actual_change_pct.round(2).values,
+        "Hợp lệ": within_limit.values,
+    })
+    return review, preview
+
+
 def read_review_csv(raw: bytes) -> pd.DataFrame:
     review = pd.read_csv(io.StringIO(_decode_csv(raw)), dtype=str, keep_default_na=False)
     required = {"ItemID", "StoreID", "Action", *EDITABLE_FIELDS}
@@ -187,10 +241,23 @@ def validate_review(package: GrabMenuPackage, review: pd.DataFrame) -> pd.DataFr
                 errors.append({"Dòng": line, "ItemID": item_id, "Lỗi": "Tên mới phải có 1–80 ký tự"})
             price = row["ProposedPrice"].strip()
             try:
-                if float(price) <= 0:
+                proposed_price = float(price)
+                if proposed_price <= 0:
                     raise ValueError
             except ValueError:
                 errors.append({"Dòng": line, "ItemID": item_id, "Lỗi": "Giá mới phải là số dương, không kèm ký hiệu tiền tệ"})
+            else:
+                try:
+                    current_price = float(str(original["*Price"]).strip())
+                except ValueError:
+                    errors.append({"Dòng": line, "ItemID": item_id, "Lỗi": "Giá hiện tại trong catalogue không hợp lệ"})
+                else:
+                    if current_price > 0 and proposed_price > current_price * 1.49 + 0.001:
+                        errors.append({
+                            "Dòng": line,
+                            "ItemID": item_id,
+                            "Lỗi": "Giá mới tăng quá 49% so với giá hiện tại; hãy chia thành nhiều lần cập nhật",
+                        })
             if description_changed and len(row["ProposedDescription"]) > 300:
                 errors.append({"Dòng": line, "ItemID": item_id, "Lỗi": "Mô tả mới vượt quá 300 ký tự"})
             if category_changed and package.departments and row["ProposedCategory"].strip() not in package.departments:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -7,6 +9,7 @@ import streamlit as st
 
 from src.grab_catalogue import (
     apply_review,
+    build_bulk_price_review,
     build_grab_zip,
     catalogue_audit as audit_grab_package,
     make_review_sheet,
@@ -147,6 +150,7 @@ with st.sidebar:
         "Tổng quan kinh doanh",
         "Danh mục ABC–XYZ",
         "Kiểm toán catalogue",
+        "Cập nhật giá hàng loạt",
         "Phân tích Menu Sales",
         "Tạo sản phẩm từ bảng giá",
         "Tạo sản phẩm từ thư mục ảnh",
@@ -377,6 +381,181 @@ elif page == "Kiểm toán catalogue":
                                         st.download_button("Tải ZIP cập nhật GrabMerchant", updated_zip, f"{stem}_updated.zip", "application/zip", type="primary")
                                         st.download_button("Tải nhật ký thay đổi", change_log.to_csv(index=False).encode("utf-8-sig"), f"{stem}_change_log.csv", "text/csv")
                                         st.info("Tải ZIP lên GrabMerchant tại Thực đơn → Cập nhật hàng loạt → Chỉnh sửa món hàng loạt. Chỉ nhấn Áp dụng sau khi Grab kiểm tra thành công.")
+
+elif page == "Cập nhật giá hàng loạt":
+    st.header("Cập nhật giá hàng loạt GrabMerchant")
+    st.info(
+        "Tải ZIP thực đơn mới nhất → chọn phạm vi sản phẩm → chọn tăng/giảm → xem trước → "
+        "xuất ZIP. Ứng dụng không kết nối hoặc tự áp dụng thay đổi lên GrabMerchant."
+    )
+    st.warning(
+        "Quy tắc kiểm soát: giá mới không được tăng quá 49% so với giá hiện tại trong một lần cập nhật. "
+        "Mọi sản phẩm vượt giới hạn đều bị chặn xuất ZIP."
+    )
+    if not authorized:
+        st.warning("Vui lòng đăng nhập bằng tài khoản được cấp quyền để xử lý thực đơn thật.")
+    else:
+        price_menu_upload = st.file_uploader(
+            "1. Tải ZIP thực đơn mới nhất từ GrabMerchant",
+            type=["zip"],
+            key="bulk_price_menu_zip",
+        )
+        if price_menu_upload is not None:
+            try:
+                price_package = read_grab_zip(price_menu_upload.getvalue())
+                price_products = price_package.products.copy()
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                current_price_numeric = pd.to_numeric(price_products["*Price"], errors="coerce")
+                valid_price_mask = current_price_numeric.gt(0)
+                p1, p2, p3 = st.columns(3)
+                p1.metric("Tổng sản phẩm", f"{len(price_products):,}")
+                p2.metric("Danh mục", f"{price_products['*GrabCategoryName'].nunique():,}")
+                p3.metric("Giá hợp lệ", f"{valid_price_mask.sum():,}/{len(price_products):,}")
+
+                st.markdown("### 2. Chọn phạm vi cập nhật")
+                available_statuses = sorted(price_products["*AvailableStatus"].astype(str).unique())
+                selected_statuses = st.multiselect(
+                    "Trạng thái sản phẩm",
+                    available_statuses,
+                    default=["AVAILABLE"] if "AVAILABLE" in available_statuses else available_statuses,
+                    help="Mặc định chỉ cập nhật các sản phẩm đang bán.",
+                )
+                status_mask = price_products["*AvailableStatus"].isin(selected_statuses)
+                scope_mode = st.radio(
+                    "Cách chọn sản phẩm",
+                    ["Theo danh mục", "Theo nhóm/từ khóa", "Chọn từng sản phẩm", "Toàn bộ thực đơn"],
+                    horizontal=True,
+                )
+                scope_mask = pd.Series(False, index=price_products.index)
+                if scope_mode == "Theo danh mục":
+                    category_options = sorted(
+                        price_products.loc[status_mask, "*GrabCategoryName"].astype(str).unique()
+                    )
+                    selected_categories = st.multiselect("Chọn một hoặc nhiều danh mục", category_options)
+                    scope_mask = price_products["*GrabCategoryName"].isin(selected_categories)
+                elif scope_mode == "Theo nhóm/từ khóa":
+                    keywords_text = st.text_input(
+                        "Nhập từ khóa nhận diện nhóm, cách nhau bằng dấu phẩy",
+                        placeholder="Ví dụ: hoa ly, lan hồ điệp, hoa hồng",
+                    )
+                    keywords = [word.strip() for word in keywords_text.split(",") if word.strip()]
+                    if keywords:
+                        escaped = "|".join(re.escape(word) for word in keywords)
+                        scope_mask = price_products["*ItemName"].astype(str).str.contains(
+                            escaped, case=False, na=False, regex=True
+                        )
+                    st.caption("Nhóm sản phẩm được xác định bằng từ khóa xuất hiện trong tên sản phẩm.")
+                elif scope_mode == "Chọn từng sản phẩm":
+                    product_labels = {
+                        str(row["*ItemID"]): f"{row['*ItemName']} · {int(float(row['*Price'])):,.0f} ₫"
+                        for _, row in price_products.loc[status_mask & valid_price_mask].iterrows()
+                    }
+                    selected_ids = st.multiselect(
+                        "Chọn sản phẩm",
+                        list(product_labels),
+                        format_func=lambda item_id: product_labels[item_id],
+                    )
+                    scope_mask = price_products["*ItemID"].astype(str).isin(selected_ids)
+                else:
+                    scope_mask = pd.Series(True, index=price_products.index)
+                    confirm_all_scope = st.checkbox(
+                        "Tôi hiểu lựa chọn này áp dụng cho toàn bộ sản phẩm phù hợp trạng thái đã chọn"
+                    )
+                    if not confirm_all_scope:
+                        scope_mask &= False
+                final_mask = status_mask & scope_mask & valid_price_mask
+
+                st.markdown("### 3. Chọn mức điều chỉnh")
+                adjust_col, type_col, value_col, round_col = st.columns(4)
+                direction = adjust_col.radio("Chiều điều chỉnh", ["Tăng", "Giảm"])
+                adjustment_type = type_col.radio("Cách tính", ["Phần trăm", "Số tiền cố định"])
+                if adjustment_type == "Phần trăm":
+                    adjustment_value = value_col.number_input(
+                        "Mức thay đổi (%)",
+                        min_value=0.0,
+                        max_value=49.0 if direction == "Tăng" else 99.0,
+                        value=10.0,
+                        step=1.0,
+                        help="Mức tăng tối đa cho một lần là 49%.",
+                    )
+                else:
+                    adjustment_value = value_col.number_input(
+                        "Số tiền thay đổi (₫)", min_value=0, value=50_000, step=1_000, format="%d"
+                    )
+                rounding_step = round_col.selectbox("Làm tròn giá mới", [1, 1_000, 5_000, 10_000], index=1)
+
+                try:
+                    price_review, price_preview = build_bulk_price_review(
+                        price_products,
+                        final_mask,
+                        direction,
+                        adjustment_type,
+                        float(adjustment_value),
+                        int(rounding_step),
+                    )
+                except ValueError as exc:
+                    st.error(str(exc))
+                else:
+                    st.markdown("### 4. Kiểm tra trước khi xuất")
+                    if price_preview.empty:
+                        st.info("Chưa có sản phẩm phù hợp. Hãy chọn danh mục, nhóm hoặc sản phẩm cần cập nhật.")
+                    else:
+                        invalid_count = int((~price_preview["Hợp lệ"]).sum())
+                        m1, m2, m3, m4 = st.columns(4)
+                        m1.metric("Sản phẩm được chọn", f"{len(price_preview):,}")
+                        m2.metric("Tổng giá hiện tại", f"{price_preview['Giá hiện tại'].sum():,.0f} ₫")
+                        m3.metric("Tổng giá mới", f"{price_preview['Giá mới'].sum():,.0f} ₫")
+                        m4.metric("Vượt giới hạn", f"{invalid_count:,}")
+                        st.dataframe(
+                            price_preview,
+                            width="stretch",
+                            hide_index=True,
+                            column_config={
+                                "Giá hiện tại": st.column_config.NumberColumn(format="%,.0f ₫"),
+                                "Giá mới": st.column_config.NumberColumn(format="%,.0f ₫"),
+                                "Chênh lệch": st.column_config.NumberColumn(format="%,.0f ₫"),
+                                "Thay đổi (%)": st.column_config.NumberColumn(format="%.2f%%"),
+                                "Hợp lệ": st.column_config.CheckboxColumn(),
+                            },
+                        )
+                        price_errors = validate_review(price_package, price_review)
+                        if not price_errors.empty:
+                            st.error(f"Có {len(price_errors):,} lỗi; chưa thể xuất ZIP.")
+                            st.dataframe(price_errors, width="stretch", hide_index=True)
+                        elif invalid_count:
+                            st.error("Có sản phẩm tăng quá 49%; hãy giảm mức điều chỉnh hoặc chia nhóm giá nhỏ hơn.")
+                        else:
+                            updated_prices, price_change_log = apply_review(price_package, price_review)
+                            st.download_button(
+                                "Tải bảng xem trước giá CSV",
+                                price_preview.to_csv(index=False).encode("utf-8-sig"),
+                                "grab_bulk_price_preview.csv",
+                                "text/csv",
+                            )
+                            price_confirmed = st.checkbox(
+                                f"Tôi đã kiểm tra giá mới của {len(price_preview):,} sản phẩm và xác nhận tạo ZIP"
+                            )
+                            if price_confirmed:
+                                bulk_price_zip = build_grab_zip(price_package, updated_prices)
+                                stem = price_package.csv_name.rsplit(".", 1)[0]
+                                st.download_button(
+                                    "Tải ZIP cập nhật giá GrabMerchant",
+                                    bulk_price_zip,
+                                    f"{stem}_bulk_price_updated.zip",
+                                    "application/zip",
+                                    type="primary",
+                                )
+                                st.download_button(
+                                    "Tải nhật ký thay đổi giá",
+                                    price_change_log.to_csv(index=False).encode("utf-8-sig"),
+                                    f"{stem}_bulk_price_change_log.csv",
+                                    "text/csv",
+                                )
+                                st.warning(
+                                    "Tải ZIP lên GrabMerchant và kiểm tra lại tổng số sản phẩm, giá cũ/giá mới trước khi bấm Áp dụng."
+                                )
 
 elif page == "Phân tích Menu Sales":
     st.header("Phân tích Menu Sales và chuẩn bị hoa theo mẫu")
