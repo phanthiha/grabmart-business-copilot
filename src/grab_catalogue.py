@@ -37,6 +37,12 @@ class GrabMenuPackage:
         # Dòng dữ liệu đầu tiên là hướng dẫn chính thức của Grab.
         return self.catalogue.iloc[1:].copy()
 
+    @property
+    def store_id(self) -> str:
+        """StoreID duy nhất của gói; read_grab_zip đã xác thực một gói chỉ có một shop."""
+        values = self.products[STORE_ID].astype(str).str.strip()
+        return values.loc[values.ne("")].iloc[0]
+
 
 def _decode_csv(raw: bytes) -> str:
     for encoding in ("utf-8-sig", "utf-8", "cp1258", "latin1"):
@@ -70,6 +76,15 @@ def read_grab_zip(raw: bytes) -> GrabMenuPackage:
         raise ValueError("CSV thiếu cột bắt buộc: " + ", ".join(sorted(missing)))
     if len(catalogue) < 2:
         raise ValueError("CSV không có dòng hướng dẫn và dữ liệu sản phẩm.")
+    product_store_ids = catalogue.iloc[1:][STORE_ID].astype(str).str.strip()
+    if product_store_ids.eq("").any():
+        raise ValueError("Có sản phẩm thiếu StoreID; không thể xác định shop an toàn.")
+    unique_store_ids = product_store_ids.unique().tolist()
+    if len(unique_store_ids) != 1:
+        raise ValueError(
+            "Mỗi lần chỉ được xử lý một shop. ZIP hiện chứa nhiều StoreID: "
+            + ", ".join(unique_store_ids[:10])
+        )
 
     departments: set[str] = set()
     department_name = next((n for n in members if n.replace("\\", "/").lower() == "resources/department_list.csv"), None)

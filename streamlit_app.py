@@ -262,16 +262,21 @@ elif page == "Kiểm toán catalogue":
                 except ValueError as exc:
                     st.error(str(exc))
                 else:
+                    shop_key = re.sub(r"[^A-Za-z0-9_-]+", "_", package.store_id)
                     c1, c2, c3, c4 = st.columns(4)
                     c1.metric("Sản phẩm", f"{len(products):,}")
                     c2.metric("Đang bán", f"{products['*AvailableStatus'].eq('AVAILABLE').sum():,}")
                     c3.metric("Danh mục", f"{products['*GrabCategoryName'].nunique():,}")
                     c4.metric("CSV nguồn", package.csv_name.split("_")[1] if "_" in package.csv_name else "Đã nhận")
-                    st.success("ZIP hợp lệ; CSV, resources và images sẽ được bảo toàn khi xuất lại.")
+                    st.success(
+                        f"Đang xử lý shop `{package.store_id}`. ZIP hợp lệ; CSV, resources và images sẽ được bảo toàn khi xuất lại."
+                    )
                     st.info("Đối với hoa thiết kế, để trống SKU/barcode là hợp lệ. Ứng dụng chỉ cảnh báo barcode đã nhập nhưng không đúng cấu trúc GTIN để chủ cửa hàng xóa hoặc xác minh trên bao bì.")
                     st.dataframe(summary, width="stretch", hide_index=True)
 
-                    issue_filter = st.selectbox("2. Chọn danh sách cần xử lý", summary["Vấn đề"], key="grab_issue")
+                    issue_filter = st.selectbox(
+                        "2. Chọn danh sách cần xử lý", summary["Vấn đề"], key=f"grab_issue_{shop_key}"
+                    )
                     mask = package_masks[issue_filter]
                     review_sheet = make_review_sheet(products, mask, issue_filter)
                     st.caption(f"Tìm thấy {len(review_sheet):,} sản phẩm. Action mặc định là REVIEW nên chưa làm thay đổi catalogue.")
@@ -325,7 +330,7 @@ elif page == "Kiểm toán catalogue":
                                     help="SKU không bắt buộc đối với cửa hàng soạn hoa theo hình mẫu.",
                                 ),
                             },
-                            key=f"grab_direct_editor_{issue_filter}",
+                            key=f"grab_direct_editor_{shop_key}_{issue_filter}",
                         )
                         direct_errors = validate_review(package, reviewed_direct)
                         direct_updated, direct_log = apply_review(package, reviewed_direct) if direct_errors.empty else (None, pd.DataFrame())
@@ -339,17 +344,19 @@ elif page == "Kiểm toán catalogue":
                             st.dataframe(direct_log, width="stretch", hide_index=True)
                             direct_confirmed = st.checkbox(
                                 f"Tôi xác nhận {len(direct_log):,} thay đổi trên form",
-                                key=f"confirm_direct_{issue_filter}",
+                                key=f"confirm_direct_{shop_key}_{issue_filter}",
                             )
                             if direct_confirmed:
                                 direct_zip = build_grab_zip(package, direct_updated)
                                 stem = package.csv_name.rsplit(".", 1)[0]
-                                st.download_button("Tải ZIP cập nhật từ form", direct_zip, f"{stem}_updated.zip", "application/zip", type="primary", key=f"direct_zip_{issue_filter}")
-                                st.download_button("Tải nhật ký thay đổi từ form", direct_log.to_csv(index=False).encode("utf-8-sig"), f"{stem}_change_log.csv", "text/csv", key=f"direct_log_{issue_filter}")
+                                st.download_button("Tải ZIP cập nhật từ form", direct_zip, f"{stem}_{shop_key}_updated.zip", "application/zip", type="primary", key=f"direct_zip_{shop_key}_{issue_filter}")
+                                st.download_button("Tải nhật ký thay đổi từ form", direct_log.to_csv(index=False).encode("utf-8-sig"), f"{stem}_{shop_key}_change_log.csv", "text/csv", key=f"direct_log_{shop_key}_{issue_filter}")
 
                     with csv_tab:
                         st.markdown("**3B. Nhập lại phiếu đã sửa bằng Excel/Google Sheets**")
-                        review_upload = st.file_uploader("Tải lên phiếu CSV sau khi sửa", type=["csv"], key="grab_review_csv")
+                        review_upload = st.file_uploader(
+                            "Tải lên phiếu CSV sau khi sửa", type=["csv"], key=f"grab_review_csv_{shop_key}"
+                        )
                     if review_upload is not None:
                         try:
                             reviewed = read_review_csv(review_upload.getvalue())
@@ -373,13 +380,13 @@ elif page == "Kiểm toán catalogue":
                                     st.dataframe(change_log, width="stretch", hide_index=True)
                                     confirmed = st.checkbox(
                                         f"Tôi đã kiểm tra {len(change_log):,} thay đổi và muốn tạo ZIP cập nhật GrabMerchant",
-                                        key="confirm_grab_zip",
+                                        key=f"confirm_grab_zip_{shop_key}",
                                     )
                                     if confirmed:
                                         updated_zip = build_grab_zip(package, updated_catalogue)
                                         stem = package.csv_name.rsplit(".", 1)[0]
-                                        st.download_button("Tải ZIP cập nhật GrabMerchant", updated_zip, f"{stem}_updated.zip", "application/zip", type="primary")
-                                        st.download_button("Tải nhật ký thay đổi", change_log.to_csv(index=False).encode("utf-8-sig"), f"{stem}_change_log.csv", "text/csv")
+                                        st.download_button("Tải ZIP cập nhật GrabMerchant", updated_zip, f"{stem}_{shop_key}_updated.zip", "application/zip", type="primary")
+                                        st.download_button("Tải nhật ký thay đổi", change_log.to_csv(index=False).encode("utf-8-sig"), f"{stem}_{shop_key}_change_log.csv", "text/csv")
                                         st.info("Tải ZIP lên GrabMerchant tại Thực đơn → Cập nhật hàng loạt → Chỉnh sửa món hàng loạt. Chỉ nhấn Áp dụng sau khi Grab kiểm tra thành công.")
 
 elif page == "Cập nhật giá hàng loạt":
@@ -412,12 +419,14 @@ elif page == "Cập nhật giá hàng loạt":
             except ValueError as exc:
                 st.error(str(exc))
             else:
+                price_shop_key = re.sub(r"[^A-Za-z0-9_-]+", "_", price_package.store_id)
                 current_price_numeric = pd.to_numeric(price_products["*Price"], errors="coerce")
                 valid_price_mask = current_price_numeric.gt(0)
-                p1, p2, p3 = st.columns(3)
-                p1.metric("Tổng sản phẩm", f"{len(price_products):,}")
-                p2.metric("Danh mục", f"{price_products['*GrabCategoryName'].nunique():,}")
-                p3.metric("Giá hợp lệ", f"{valid_price_mask.sum():,}/{len(price_products):,}")
+                p1, p2, p3, p4 = st.columns(4)
+                p1.metric("Shop", price_package.store_id)
+                p2.metric("Tổng sản phẩm", f"{len(price_products):,}")
+                p3.metric("Danh mục", f"{price_products['*GrabCategoryName'].nunique():,}")
+                p4.metric("Giá hợp lệ", f"{valid_price_mask.sum():,}/{len(price_products):,}")
 
                 st.markdown("### 2. Chọn phạm vi cập nhật")
                 available_statuses = sorted(price_products["*AvailableStatus"].astype(str).unique())
@@ -426,24 +435,29 @@ elif page == "Cập nhật giá hàng loạt":
                     available_statuses,
                     default=["AVAILABLE"] if "AVAILABLE" in available_statuses else available_statuses,
                     help="Mặc định chỉ cập nhật các sản phẩm đang bán.",
+                    key=f"bulk_price_statuses_{price_shop_key}",
                 )
                 status_mask = price_products["*AvailableStatus"].isin(selected_statuses)
                 scope_mode = st.radio(
                     "Cách chọn sản phẩm",
                     ["Theo danh mục", "Theo nhóm/từ khóa", "Chọn từng sản phẩm", "Toàn bộ thực đơn"],
                     horizontal=True,
+                    key=f"bulk_price_scope_{price_shop_key}",
                 )
                 scope_mask = pd.Series(False, index=price_products.index)
                 if scope_mode == "Theo danh mục":
                     category_options = sorted(
                         price_products.loc[status_mask, "*GrabCategoryName"].astype(str).unique()
                     )
-                    selected_categories = st.multiselect("Chọn một hoặc nhiều danh mục", category_options)
+                    selected_categories = st.multiselect(
+                        "Chọn một hoặc nhiều danh mục", category_options, key=f"bulk_price_categories_{price_shop_key}"
+                    )
                     scope_mask = price_products["*GrabCategoryName"].isin(selected_categories)
                 elif scope_mode == "Theo nhóm/từ khóa":
                     keywords_text = st.text_input(
                         "Nhập từ khóa nhận diện nhóm, cách nhau bằng dấu phẩy",
                         placeholder="Ví dụ: hoa ly, lan hồ điệp, hoa hồng",
+                        key=f"bulk_price_keywords_{price_shop_key}",
                     )
                     keywords = [word.strip() for word in keywords_text.split(",") if word.strip()]
                     if keywords:
@@ -461,12 +475,14 @@ elif page == "Cập nhật giá hàng loạt":
                         "Chọn sản phẩm",
                         list(product_labels),
                         format_func=lambda item_id: product_labels[item_id],
+                        key=f"bulk_price_products_{price_shop_key}",
                     )
                     scope_mask = price_products["*ItemID"].astype(str).isin(selected_ids)
                 else:
                     scope_mask = pd.Series(True, index=price_products.index)
                     confirm_all_scope = st.checkbox(
-                        "Tôi hiểu lựa chọn này áp dụng cho toàn bộ sản phẩm phù hợp trạng thái đã chọn"
+                        "Tôi hiểu lựa chọn này áp dụng cho toàn bộ sản phẩm phù hợp trạng thái đã chọn",
+                        key=f"bulk_price_all_{price_shop_key}",
                     )
                     if not confirm_all_scope:
                         scope_mask &= False
@@ -474,8 +490,12 @@ elif page == "Cập nhật giá hàng loạt":
 
                 st.markdown("### 3. Chọn mức điều chỉnh")
                 adjust_col, type_col, value_col, round_col = st.columns(4)
-                direction = adjust_col.radio("Chiều điều chỉnh", ["Tăng", "Giảm"])
-                adjustment_type = type_col.radio("Cách tính", ["Phần trăm", "Số tiền cố định"])
+                direction = adjust_col.radio(
+                    "Chiều điều chỉnh", ["Tăng", "Giảm"], key=f"bulk_price_direction_{price_shop_key}"
+                )
+                adjustment_type = type_col.radio(
+                    "Cách tính", ["Phần trăm", "Số tiền cố định"], key=f"bulk_price_type_{price_shop_key}"
+                )
                 if adjustment_type == "Phần trăm":
                     adjustment_value = value_col.number_input(
                         "Mức thay đổi (%)",
@@ -484,12 +504,17 @@ elif page == "Cập nhật giá hàng loạt":
                         value=10.0,
                         step=1.0,
                         help="Mức tăng tối đa cho một lần là 49%.",
+                        key=f"bulk_price_percent_{price_shop_key}",
                     )
                 else:
                     adjustment_value = value_col.number_input(
-                        "Số tiền thay đổi (₫)", min_value=0, value=50_000, step=1_000, format="%d"
+                        "Số tiền thay đổi (₫)", min_value=0, value=50_000, step=1_000, format="%d",
+                        key=f"bulk_price_fixed_{price_shop_key}",
                     )
-                rounding_step = round_col.selectbox("Làm tròn giá mới", [1, 1_000, 5_000, 10_000], index=1)
+                rounding_step = round_col.selectbox(
+                    "Làm tròn giá mới", [1, 1_000, 5_000, 10_000], index=1,
+                    key=f"bulk_price_rounding_{price_shop_key}",
+                )
 
                 try:
                     price_review, price_preview = build_bulk_price_review(
@@ -547,6 +572,7 @@ elif page == "Cập nhật giá hàng loạt":
                             price_confirmed = st.checkbox(
                                 f"Tôi đã kiểm tra giá mới của {len(price_preview):,} sản phẩm và xác nhận tạo ZIP",
                                 disabled=price_change_log.empty,
+                                key=f"bulk_price_confirm_{price_shop_key}",
                             )
                             if price_confirmed and not price_change_log.empty:
                                 bulk_price_zip = build_grab_zip(price_package, updated_prices)
@@ -554,14 +580,14 @@ elif page == "Cập nhật giá hàng loạt":
                                 st.download_button(
                                     "Tải ZIP cập nhật giá GrabMerchant",
                                     bulk_price_zip,
-                                    f"{stem}_bulk_price_updated.zip",
+                                    f"{stem}_{price_shop_key}_bulk_price_updated.zip",
                                     "application/zip",
                                     type="primary",
                                 )
                                 st.download_button(
                                     "Tải nhật ký thay đổi giá",
                                     price_change_log.to_csv(index=False).encode("utf-8-sig"),
-                                    f"{stem}_bulk_price_change_log.csv",
+                                    f"{stem}_{price_shop_key}_bulk_price_change_log.csv",
                                     "text/csv",
                                 )
                                 st.warning(
