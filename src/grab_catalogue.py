@@ -6,6 +6,7 @@ import unicodedata
 import zipfile
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
 
 
@@ -183,7 +184,15 @@ def build_bulk_price_review(
         proposed_raw = current * (1 + sign * adjustment_value / 100)
     else:
         proposed_raw = current + sign * adjustment_value
-    proposed = ((proposed_raw / rounding_step).round() * rounding_step).astype("int64")
+    # Làm tròn bảo thủ để không vô tình vượt mức người dùng chọn hoặc trần 49%:
+    # tăng thì làm tròn xuống, giảm thì làm tròn lên. Nếu thay đổi quá nhỏ so với
+    # bước làm tròn, giữ nguyên giá hiện tại thay vì đổi sai chiều.
+    if direction == "Tăng":
+        rounded = np.floor(proposed_raw / rounding_step) * rounding_step
+        proposed = pd.Series(np.maximum(rounded, current), index=current.index).astype("int64")
+    else:
+        rounded = np.ceil(proposed_raw / rounding_step) * rounding_step
+        proposed = pd.Series(np.minimum(rounded, current), index=current.index).astype("int64")
     if proposed.le(0).any():
         raise ValueError("Mức giảm làm cho ít nhất một sản phẩm có giá mới không lớn hơn 0.")
 

@@ -392,6 +392,11 @@ elif page == "Cập nhật giá hàng loạt":
         "Quy tắc kiểm soát: giá mới không được tăng quá 49% so với giá hiện tại trong một lần cập nhật. "
         "Mọi sản phẩm vượt giới hạn đều bị chặn xuất ZIP."
     )
+    st.caption(
+        "Chức năng chỉ điều chỉnh giá chính `*Price`. Giá trong OptionGroup1/OptionGroup2, chương trình khuyến mãi "
+        "và các loại phí khác được giữ nguyên. Giới hạn 49% được tính từ giá hiện tại trong ZIP đã tải lên; "
+        "kết quả kiểm tra cuối cùng trên GrabMerchant vẫn là căn cứ quyết định."
+    )
     if not authorized:
         st.warning("Vui lòng đăng nhập bằng tài khoản được cấp quyền để xử lý thực đơn thật.")
     else:
@@ -534,10 +539,16 @@ elif page == "Cập nhật giá hàng loạt":
                                 "grab_bulk_price_preview.csv",
                                 "text/csv",
                             )
+                            if price_change_log.empty:
+                                st.info(
+                                    "Mức điều chỉnh hiện tại không làm thay đổi giá sau khi áp dụng bước làm tròn. "
+                                    "Hãy tăng mức điều chỉnh hoặc chọn bước làm tròn nhỏ hơn."
+                                )
                             price_confirmed = st.checkbox(
-                                f"Tôi đã kiểm tra giá mới của {len(price_preview):,} sản phẩm và xác nhận tạo ZIP"
+                                f"Tôi đã kiểm tra giá mới của {len(price_preview):,} sản phẩm và xác nhận tạo ZIP",
+                                disabled=price_change_log.empty,
                             )
-                            if price_confirmed:
+                            if price_confirmed and not price_change_log.empty:
                                 bulk_price_zip = build_grab_zip(price_package, updated_prices)
                                 stem = price_package.csv_name.rsplit(".", 1)[0]
                                 st.download_button(
