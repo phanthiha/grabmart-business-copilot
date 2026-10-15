@@ -406,7 +406,8 @@ elif page == "Cập nhật giá hàng loạt":
         "và các loại phí khác được giữ nguyên. Giới hạn 49% được tính từ giá hiện tại trong ZIP đã tải lên; "
         "kết quả kiểm tra cuối cùng trên GrabMerchant vẫn là căn cứ quyết định."
     )
-    if not authorized:
+    public_zip_tool = page == "Cập nhật giá hàng loạt"
+    if not (authorized or public_zip_tool):
         st.warning("Vui lòng đăng nhập bằng tài khoản được cấp quyền để xử lý thực đơn thật.")
     else:
         price_menu_upload = st.file_uploader(
