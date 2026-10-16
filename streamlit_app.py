@@ -720,13 +720,18 @@ elif page == "Sao chép sản phẩm giữa shop":
                             if mapped:
                                 category_mapping[category] = mapped
                     if selected_transfer_ids:
-                        selection_signature = tuple(sorted(selected_transfer_ids))
+                        signature_columns = ["*ItemID", "Photo1", "Photo2", "Photo3", "Photo4"]
+                        selection_signature = tuple(
+                            tuple(str(row.get(column, "")).strip() for column in signature_columns)
+                            for _, row in source_products.iterrows()
+                        )
                         include_cdn_images = st.checkbox(
-                            "Tải ảnh hiện tại từ CDN Grab và đóng gói lại cho shop đích",
+                            "Bắt buộc tải ảnh hiện tại từ CDN Grab và đóng gói cho shop đích",
                             value=True,
+                            disabled=True,
                             help=(
-                                "Chỉ tải URL HTTPS thuộc food-cms.grab.com hoặc huawei-food-cms.grab.com; "
-                                "ảnh được xác thực, chuyển JPEG và giới hạn 2 MB."
+                                "Ứng dụng không cho xuất ZIP nếu sản phẩm có ảnh ở shop nguồn nhưng ảnh chưa được "
+                                "tải và gắn thành công vào gói shop đích."
                             ),
                             key=f"shop_transfer_include_images_{transfer_source.store_id}_{target_store_id}",
                         )
@@ -802,24 +807,46 @@ elif page == "Sao chép sản phẩm giữa shop":
                                 "Danh mục Grab": st.column_config.SelectboxColumn(options=target_categories, required=True),
                                 "Mô tả": st.column_config.TextColumn(max_chars=300),
                             },
-                            key=f"shop_transfer_editor_{transfer_source.store_id}_{target_store_id}",
+                            key=(
+                                f"shop_transfer_editor_{transfer_source.store_id}_{target_store_id}_"
+                                f"{'images_ready' if image_ready else 'waiting_images'}"
+                            ),
                         )
                         selected_for_transfer = transfer_editor[transfer_editor["Chọn tạo"].astype(bool)]
                         unmapped_product_count = int(
                             selected_for_transfer["Danh mục Grab"].astype(str).str.strip().eq("").sum()
                         )
+                        photo_columns = [f"Tên file ảnh {slot}" for slot in range(1, 5)]
                         missing_photo_count = int(
-                            selected_for_transfer[[f"Tên file ảnh {slot}" for slot in range(1, 5)]]
+                            selected_for_transfer[photo_columns]
                             .astype(str).apply(lambda row: row.str.strip().eq("").all(), axis=1).sum()
+                        )
+                        source_photo_by_id = {
+                            str(row.get("*ItemID", "")): any(
+                                str(row.get(f"Photo{slot}", "")).strip() for slot in range(1, 5)
+                            )
+                            for _, row in source_products.iterrows()
+                        }
+                        failed_photo_count = int(
+                            sum(
+                                source_photo_by_id.get(str(row.get("ItemID nguồn", "")), False)
+                                and all(not str(row.get(column, "")).strip() for column in photo_columns)
+                                for _, row in selected_for_transfer.iterrows()
+                            )
                         )
                         s1, s2, s3 = st.columns(3)
                         s1.metric("Sản phẩm sẽ tạo", f"{len(selected_for_transfer):,}")
                         s2.metric("Không có ảnh đóng gói", f"{missing_photo_count:,}")
                         s3.metric("OptionGroup được sửa", f"{len(transfer_option_log):,}")
-                        if missing_photo_count:
+                        if failed_photo_count:
+                            st.error(
+                                f"Có {failed_photo_count:,} sản phẩm có ảnh ở shop nguồn nhưng ảnh chưa được gắn vào "
+                                "ZIP đích. Ứng dụng đã khóa xuất ZIP để tránh tạo sản phẩm mất ảnh."
+                            )
+                        elif missing_photo_count:
                             st.warning(
-                                f"Có {missing_photo_count:,} sản phẩm chưa có file ảnh trong ZIP nguồn. "
-                                "Sản phẩm vẫn có thể được tạo không ảnh hoặc cần bổ sung ảnh trong GrabMerchant sau đó."
+                                f"Có {missing_photo_count:,} sản phẩm vốn không có ảnh ở shop nguồn; các sản phẩm này "
+                                "sẽ vẫn không có ảnh ở shop đích."
                             )
                         if unmapped_product_count:
                             st.error(
@@ -830,12 +857,18 @@ elif page == "Sao chép sản phẩm giữa shop":
                             st.success(
                                 "Đã sửa dấu ':' thừa trong OptionGroup trước khi chuyển; giá tùy chọn được giữ nguyên."
                             )
+                        export_blocked = bool(unmapped_product_count or not image_ready or failed_photo_count)
+                        if not image_ready:
+                            st.error(
+                                "Chưa có bộ ảnh đã xác thực. Phải hoàn tất nút “Tải và kiểm tra ảnh của toàn bộ "
+                                "sản phẩm” trước khi xuất ZIP."
+                            )
                         confirm_transfer = st.checkbox(
                             "Tôi xác nhận có quyền quản lý hai shop và đã kiểm tra tên, giá, danh mục, ảnh",
-                            disabled=bool(unmapped_product_count),
+                            disabled=export_blocked,
                             key=f"shop_transfer_confirm_{transfer_source.store_id}_{target_store_id}",
                         )
-                        if confirm_transfer:
+                        if confirm_transfer and not export_blocked:
                             try:
                                 transfer_zip, transferred_names = build_create_items_zip(
                                     target_upload.getvalue(), transfer_editor, transfer_assets
