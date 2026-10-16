@@ -646,8 +646,9 @@ elif page == "Sao chép sản phẩm giữa shop":
         "Ứng dụng tạo sản phẩm mới cho shop đích; không sao chép ItemID của shop nguồn."
     )
     st.warning(
-        "Ảnh dạng URL food-cms của shop nguồn không được chuyển sang shop khác. "
-        "Chỉ ảnh thực sự nằm trong thư mục images của ZIP nguồn mới được đóng gói lại."
+        "ZIP Grab thường chỉ chứa URL ảnh trên CDN, không chứa file ảnh sản phẩm. Sau khi chọn sản phẩm, "
+        "hãy bấm “Tải và kiểm tra ảnh”; ứng dụng chỉ tải ảnh HTTPS từ CDN chính thức của Grab, "
+        "chuyển thành JPEG và đóng gói vào ZIP shop đích."
     )
     if not authorized:
         st.warning("Vui lòng đăng nhập bằng tài khoản được cấp quyền để sử dụng chức năng chuyển shop.")
