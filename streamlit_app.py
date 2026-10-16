@@ -691,19 +691,34 @@ elif page == "Sao chép sản phẩm giữa shop":
                         )
 
                     source_products = transfer_source.products.copy()
-                    product_labels = {
-                        str(row["*ItemID"]): (
-                            f"{row['*ItemName']} · {row['*GrabCategoryName']} · "
-                            f"{int(float(row['*Price'])):,.0f} ₫"
-                        )
-                        for _, row in source_products.iterrows()
-                    }
-                    selected_transfer_ids = st.multiselect(
-                        "3. Chọn sản phẩm cần tạo tại shop đích",
-                        list(product_labels),
-                        format_func=lambda item_id: product_labels[item_id],
-                        key=f"shop_transfer_items_{transfer_source.store_id}_{target_store_id}",
+                    selected_transfer_ids = source_products["*ItemID"].astype(str).tolist()
+                    st.markdown("### 3. Sao chép toàn bộ thực đơn")
+                    st.success(
+                        f"Ứng dụng sẽ chuyển toàn bộ {len(selected_transfer_ids):,} sản phẩm từ shop nguồn sang shop đích."
                     )
+                    source_categories = sorted(
+                        set(source_products["*GrabCategoryName"].astype(str).str.strip()), key=str.casefold
+                    )
+                    target_category_set = set(target_categories)
+                    unmatched_categories = [
+                        category for category in source_categories if category and category not in target_category_set
+                    ]
+                    category_mapping: dict[str, str] = {}
+                    if unmatched_categories:
+                        st.warning(
+                            f"Có {len(unmatched_categories):,} danh mục nguồn chưa có tên trùng khớp ở shop đích. "
+                            "Hãy ánh xạ từng danh mục trước khi xuất ZIP."
+                        )
+                        for category in unmatched_categories:
+                            mapped = st.selectbox(
+                                f"{category} →",
+                                target_categories,
+                                index=None,
+                                placeholder="Chọn danh mục tương ứng ở shop đích",
+                                key=f"shop_transfer_category_{transfer_source.store_id}_{target_store_id}_{category}",
+                            )
+                            if mapped:
+                                category_mapping[category] = mapped
                     if selected_transfer_ids:
                         selection_signature = tuple(sorted(selected_transfer_ids))
                         include_cdn_images = st.checkbox(
@@ -717,7 +732,7 @@ elif page == "Sao chép sản phẩm giữa shop":
                         )
                         image_state_key = f"shop_transfer_images_{transfer_source.store_id}_{target_store_id}"
                         if include_cdn_images and st.button(
-                            "Tải và kiểm tra ảnh của sản phẩm đã chọn",
+                            "Tải và kiểm tra ảnh của toàn bộ sản phẩm",
                             key=f"shop_transfer_download_images_{transfer_source.store_id}_{target_store_id}",
                         ):
                             with st.spinner("Đang tải, xác thực và nén ảnh từ CDN Grab..."):
@@ -735,7 +750,10 @@ elif page == "Sao chép sản phẩm giữa shop":
                             include_cdn_images and image_state.get("selection") == selection_signature
                         )
                         if include_cdn_images and not image_ready:
-                            st.info("Bấm “Tải và kiểm tra ảnh” trước khi xuất ZIP để chuyển ảnh sang shop đích.")
+                            st.info(
+                                "Bấm “Tải và kiểm tra ảnh của toàn bộ sản phẩm” trước khi xuất ZIP. "
+                                "Thời gian xử lý phụ thuộc số lượng ảnh trong thực đơn nguồn."
+                            )
                         transfer_assets = image_state.get("assets", source_assets) if image_ready else source_assets
                         transfer_aliases = image_state.get("aliases", {}) if image_ready else {}
                         if image_ready:
@@ -749,18 +767,22 @@ elif page == "Sao chép sản phẩm giữa shop":
                         )
                         transfer_source.catalogue = repaired_catalogue
                         transfer_table = transfer_review(
-                            transfer_source, selected_transfer_ids, target_categories, transfer_aliases
+                            transfer_source,
+                            selected_transfer_ids,
+                            target_categories,
+                            transfer_aliases,
+                            category_mapping,
                         )
-                        st.markdown("### 4. Kiểm tra và chỉnh thông tin shop đích")
+                        st.markdown("### 4. Kiểm tra toàn bộ sản phẩm shop đích")
                         st.caption(
-                            "Có thể đổi tên, giá, danh mục và mô tả. ItemID nguồn chỉ dùng đối chiếu; "
-                            "Grab sẽ tạo ItemID mới tại shop đích."
+                            "Mặc định giữ nguyên tên, giá, mô tả và đúng danh mục nguồn khi danh mục tồn tại ở shop đích. "
+                            "ItemID nguồn chỉ dùng đối chiếu; Grab sẽ tạo ItemID mới tại shop đích."
                         )
                         transfer_editor = st.data_editor(
                             transfer_table,
                             width="stretch",
                             hide_index=True,
-                            disabled=["ItemID nguồn", "Danh mục nguồn", "Tình trạng tên"],
+                            disabled=["Chọn tạo", "ItemID nguồn", "Danh mục nguồn", "Tình trạng tên"],
                             column_config={
                                 "Chọn tạo": st.column_config.CheckboxColumn(required=True),
                                 "Giá bán (₫)": st.column_config.NumberColumn(min_value=1, step=1_000, format="%,.0f ₫"),
@@ -770,6 +792,9 @@ elif page == "Sao chép sản phẩm giữa shop":
                             key=f"shop_transfer_editor_{transfer_source.store_id}_{target_store_id}",
                         )
                         selected_for_transfer = transfer_editor[transfer_editor["Chọn tạo"].astype(bool)]
+                        unmapped_product_count = int(
+                            selected_for_transfer["Danh mục Grab"].astype(str).str.strip().eq("").sum()
+                        )
                         missing_photo_count = int(
                             selected_for_transfer[[f"Tên file ảnh {slot}" for slot in range(1, 5)]]
                             .astype(str).apply(lambda row: row.str.strip().eq("").all(), axis=1).sum()
@@ -783,12 +808,18 @@ elif page == "Sao chép sản phẩm giữa shop":
                                 f"Có {missing_photo_count:,} sản phẩm chưa có file ảnh trong ZIP nguồn. "
                                 "Sản phẩm vẫn có thể được tạo không ảnh hoặc cần bổ sung ảnh trong GrabMerchant sau đó."
                             )
+                        if unmapped_product_count:
+                            st.error(
+                                f"Còn {unmapped_product_count:,} sản phẩm chưa có danh mục đích. "
+                                "Hãy hoàn tất ánh xạ danh mục phía trên."
+                            )
                         if not transfer_option_log.empty:
                             st.success(
                                 "Đã sửa dấu ':' thừa trong OptionGroup trước khi chuyển; giá tùy chọn được giữ nguyên."
                             )
                         confirm_transfer = st.checkbox(
                             "Tôi xác nhận có quyền quản lý hai shop và đã kiểm tra tên, giá, danh mục, ảnh",
+                            disabled=bool(unmapped_product_count),
                             key=f"shop_transfer_confirm_{transfer_source.store_id}_{target_store_id}",
                         )
                         if confirm_transfer:

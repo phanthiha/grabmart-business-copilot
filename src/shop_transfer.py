@@ -132,12 +132,13 @@ def transfer_review(
     item_ids: list[str],
     target_categories: list[str],
     image_aliases: dict[str, str] | None = None,
+    category_mapping: dict[str, str] | None = None,
 ) -> pd.DataFrame:
     selected = package.products.loc[package.products["*ItemID"].astype(str).isin(item_ids)].copy()
     if selected.empty:
         return pd.DataFrame()
     valid_categories = set(target_categories)
-    fallback = target_categories[0] if target_categories else ""
+    category_mapping = category_mapping or {}
     rows: list[dict[str, object]] = []
     _, local_aliases = source_image_assets(package)
     aliases = {**local_aliases, **(image_aliases or {})}
@@ -150,7 +151,9 @@ def transfer_review(
             "Tên sản phẩm": str(source.get("*ItemName", ""))[:80],
             "Giá bán (₫)": int(float(str(source.get("*Price", "0")) or 0)),
             "Danh mục nguồn": source_category,
-            "Danh mục Grab": source_category if source_category in valid_categories else fallback,
+            "Danh mục Grab": (
+                source_category if source_category in valid_categories else category_mapping.get(source_category, "")
+            ),
             "Mô tả": str(source.get("Description", ""))[:300],
             "Tình trạng tên": "Đã xác minh",
         }
