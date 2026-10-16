@@ -5,6 +5,8 @@ import re
 import urllib.parse
 import urllib.request
 import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Callable
 
 import pandas as pd
 from PIL import Image, UnidentifiedImageError
@@ -75,13 +77,16 @@ def download_grab_image_assets(
     package: GrabMenuPackage,
     item_ids: list[str],
     max_total_bytes: int = 150 * 1024 * 1024,
+    max_workers: int = 12,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> tuple[dict[str, bytes], dict[str, str], list[str]]:
-    """Tải ảnh công khai từ CDN Grab, xác thực nội dung và chuyển thành JPEG cho ZIP tạo món."""
+    """Tải song song ảnh CDN Grab, loại URL trùng và chuyển thành JPEG cho ZIP tạo món."""
     allowed_hosts = {"huawei-food-cms.grab.com", "food-cms.grab.com"}
     chosen = package.products.loc[package.products["*ItemID"].astype(str).isin(item_ids)]
     assets, aliases = source_image_assets(package)
     warnings: list[str] = []
     total = sum(len(content) for content in assets.values())
+    pending: dict[str, tuple[str, int]] = {}
     for _, product in chosen.iterrows():
         item_id = re.sub(r"[^A-Za-z0-9_-]+", "_", str(product.get("*ItemID", "item")))
         for slot in range(1, 5):
@@ -92,30 +97,43 @@ def download_grab_image_assets(
             if parsed.scheme != "https" or parsed.hostname not in allowed_hosts:
                 warnings.append(f"{item_id} Photo{slot}: bỏ qua URL không thuộc CDN ảnh Grab")
                 continue
+            pending.setdefault(source, (item_id, slot))
+
+    def fetch_and_convert(source: str) -> bytes:
+        request = urllib.request.Request(source, headers={"User-Agent": "GrabMart-Catalogue-Transfer/1.0"})
+        with urllib.request.urlopen(request, timeout=12) as response:
+            raw = response.read(8 * 1024 * 1024 + 1)
+        if len(raw) > 8 * 1024 * 1024:
+            raise ValueError("ảnh nguồn vượt 8 MB")
+        with Image.open(io.BytesIO(raw)) as image:
+            image.load()
+            if image.width < 100 or image.height < 100:
+                raise ValueError("kích thước ảnh quá nhỏ")
+            converted = image.convert("RGB")
+            converted.thumbnail((2000, 2000))
+            output = io.BytesIO()
+            quality = 90
+            while True:
+                output.seek(0)
+                output.truncate(0)
+                converted.save(output, format="JPEG", quality=quality, optimize=True)
+                if output.tell() <= 2 * 1024 * 1024 or quality <= 60:
+                    break
+                quality -= 10
+        content = output.getvalue()
+        if len(content) > 2 * 1024 * 1024:
+            raise ValueError("không thể nén ảnh xuống dưới 2 MB")
+        return content
+
+    completed = 0
+    worker_count = max(1, min(max_workers, len(pending))) if pending else 1
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = {executor.submit(fetch_and_convert, source): source for source in pending}
+        for future in as_completed(futures):
+            source = futures[future]
+            item_id, slot = pending[source]
             try:
-                request = urllib.request.Request(source, headers={"User-Agent": "GrabMart-Catalogue-Transfer/1.0"})
-                with urllib.request.urlopen(request, timeout=20) as response:
-                    raw = response.read(8 * 1024 * 1024 + 1)
-                if len(raw) > 8 * 1024 * 1024:
-                    raise ValueError("ảnh nguồn vượt 8 MB")
-                with Image.open(io.BytesIO(raw)) as image:
-                    image.load()
-                    if image.width < 100 or image.height < 100:
-                        raise ValueError("kích thước ảnh quá nhỏ")
-                    converted = image.convert("RGB")
-                    converted.thumbnail((2000, 2000))
-                    output = io.BytesIO()
-                    quality = 90
-                    while True:
-                        output.seek(0)
-                        output.truncate(0)
-                        converted.save(output, format="JPEG", quality=quality, optimize=True)
-                        if output.tell() <= 2 * 1024 * 1024 or quality <= 60:
-                            break
-                        quality -= 10
-                    content = output.getvalue()
-                if len(content) > 2 * 1024 * 1024:
-                    raise ValueError("không thể nén ảnh xuống dưới 2 MB")
+                content = future.result()
                 if total + len(content) > max_total_bytes:
                     raise ValueError("tổng ảnh đã đạt giới hạn 150 MB")
                 filename = f"{item_id}_{slot}.jpg"
@@ -124,6 +142,9 @@ def download_grab_image_assets(
                 total += len(content)
             except (OSError, ValueError, UnidentifiedImageError) as exc:
                 warnings.append(f"{item_id} Photo{slot}: {exc}")
+            completed += 1
+            if progress_callback:
+                progress_callback(completed, len(pending))
     return assets, aliases, warnings
 
 

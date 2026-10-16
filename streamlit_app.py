@@ -646,8 +646,8 @@ elif page == "Sao chép sản phẩm giữa shop":
         "Ứng dụng tạo sản phẩm mới cho shop đích; không sao chép ItemID của shop nguồn."
     )
     st.warning(
-        "ZIP Grab thường chỉ chứa URL ảnh trên CDN, không chứa file ảnh sản phẩm. Sau khi chọn sản phẩm, "
-        "hãy bấm “Tải và kiểm tra ảnh”; ứng dụng chỉ tải ảnh HTTPS từ CDN chính thức của Grab, "
+        "ZIP Grab thường chỉ chứa URL ảnh trên CDN, không chứa file ảnh sản phẩm. Sau khi tải hai tệp ZIP, "
+        "hãy bấm “Tải và kiểm tra ảnh của toàn bộ sản phẩm”; ứng dụng tải song song, bỏ qua URL trùng, "
         "chuyển thành JPEG và đóng gói vào ZIP shop đích."
     )
     if not authorized:
@@ -735,10 +735,23 @@ elif page == "Sao chép sản phẩm giữa shop":
                             "Tải và kiểm tra ảnh của toàn bộ sản phẩm",
                             key=f"shop_transfer_download_images_{transfer_source.store_id}_{target_store_id}",
                         ):
-                            with st.spinner("Đang tải, xác thực và nén ảnh từ CDN Grab..."):
+                            progress_bar = st.progress(0, text="Đang chuẩn bị danh sách ảnh...")
+
+                            def show_image_progress(completed: int, total: int) -> None:
+                                if total and (completed == total or completed % max(1, total // 100) == 0):
+                                    progress_bar.progress(
+                                        completed / total,
+                                        text=f"Đã xử lý {completed:,}/{total:,} ảnh duy nhất",
+                                    )
+
+                            with st.spinner("Đang tải song song, xác thực và nén ảnh từ CDN Grab..."):
                                 downloaded_assets, downloaded_aliases, image_warnings = download_grab_image_assets(
-                                    transfer_source, selected_transfer_ids
+                                    transfer_source,
+                                    selected_transfer_ids,
+                                    max_workers=12,
+                                    progress_callback=show_image_progress,
                                 )
+                            progress_bar.progress(1.0, text="Đã hoàn tất xử lý ảnh")
                             st.session_state[image_state_key] = {
                                 "selection": selection_signature,
                                 "assets": downloaded_assets,
