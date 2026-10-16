@@ -683,7 +683,7 @@ elif page == "Sao chép sản phẩm giữa shop":
                     c1.metric("Shop nguồn", transfer_source.store_id)
                     c2.metric("Shop đích", target_store_id)
                     c3.metric("Sản phẩm nguồn", f"{len(transfer_source.products):,}")
-                    c4.metric("Ảnh đóng gói được", f"{len(source_assets):,}")
+                    c4.metric("Ảnh có sẵn trong ZIP nguồn", f"{len(source_assets):,}")
                     if target_store_id == "Không xác định từ tên mẫu":
                         st.warning(
                             "Không đọc được StoreID từ tên ZIP shop đích. Hãy kiểm tra lại tài khoản/shop "
@@ -691,13 +691,49 @@ elif page == "Sao chép sản phẩm giữa shop":
                         )
 
                     source_products = transfer_source.products.copy()
-                    selected_transfer_ids = source_products["*ItemID"].astype(str).tolist()
-                    st.markdown("### 3. Sao chép toàn bộ thực đơn")
+                    status_column = "*AvailableStatus"
+                    status_labels = {
+                        "AVAILABLE": "Đang bán",
+                        "UNAVAILABLE_TODAY": "Hết hàng hôm nay",
+                        "UNAVAILABLE_PERMANENTLY": "Ngừng bán",
+                    }
+                    if status_column in source_products.columns:
+                        normalized_status = (
+                            source_products[status_column].fillna("").astype(str).str.strip().str.upper()
+                        )
+                    else:
+                        normalized_status = pd.Series("AVAILABLE", index=source_products.index)
+                    source_products[status_column] = normalized_status
+                    status_counts = normalized_status.value_counts().to_dict()
+                    status_options = [status for status in status_counts if status]
+                    default_statuses = ["AVAILABLE"] if "AVAILABLE" in status_options else status_options
+                    selected_statuses = st.multiselect(
+                        "Trạng thái sản phẩm cần sao chép",
+                        options=status_options,
+                        default=default_statuses,
+                        format_func=lambda status: (
+                            f"{status_labels.get(status, status)} ({status}) – "
+                            f"{status_counts.get(status, 0):,} sản phẩm"
+                        ),
+                        help=(
+                            "Mặc định chỉ sao chép sản phẩm AVAILABLE (đang bán). "
+                            "Có thể chọn thêm các trạng thái khác khi cần."
+                        ),
+                        key=f"shop_transfer_status_{transfer_source.store_id}_{target_store_id}",
+                    )
+                    filtered_source_products = source_products[
+                        source_products[status_column].isin(selected_statuses)
+                    ].copy()
+                    selected_transfer_ids = filtered_source_products["*ItemID"].astype(str).tolist()
+                    st.markdown("### 3. Sao chép sản phẩm theo trạng thái")
+                    if not selected_statuses:
+                        st.warning("Hãy chọn ít nhất một trạng thái sản phẩm để tiếp tục.")
                     st.success(
-                        f"Ứng dụng sẽ chuyển toàn bộ {len(selected_transfer_ids):,} sản phẩm từ shop nguồn sang shop đích."
+                        f"Ứng dụng sẽ chuyển {len(selected_transfer_ids):,} sản phẩm thuộc "
+                        f"{len(selected_statuses):,} trạng thái đã chọn sang shop đích."
                     )
                     source_categories = sorted(
-                        set(source_products["*GrabCategoryName"].astype(str).str.strip()), key=str.casefold
+                        set(filtered_source_products["*GrabCategoryName"].astype(str).str.strip()), key=str.casefold
                     )
                     target_category_set = set(target_categories)
                     unmatched_categories = [
@@ -723,7 +759,7 @@ elif page == "Sao chép sản phẩm giữa shop":
                         signature_columns = ["*ItemID", "Photo1", "Photo2", "Photo3", "Photo4"]
                         selection_signature = tuple(
                             tuple(str(row.get(column, "")).strip() for column in signature_columns)
-                            for _, row in source_products.iterrows()
+                            for _, row in filtered_source_products.iterrows()
                         )
                         include_cdn_images = st.checkbox(
                             "Bắt buộc tải ảnh hiện tại từ CDN Grab và đóng gói cho shop đích",
@@ -825,7 +861,7 @@ elif page == "Sao chép sản phẩm giữa shop":
                             str(row.get("*ItemID", "")): any(
                                 str(row.get(f"Photo{slot}", "")).strip() for slot in range(1, 5)
                             )
-                            for _, row in source_products.iterrows()
+                            for _, row in filtered_source_products.iterrows()
                         }
                         failed_photo_count = int(
                             sum(
