@@ -137,13 +137,30 @@ def load_demo() -> DataBundle:
     miwi_items = pd.DataFrame({"missing_reported": [4], "wrong_reported": [10], "total_reported": [14]})
     miwi_heatmap = pd.DataFrame({"disposition": ["Wrong"]*5 + ["Missing"]*2, "hour": [10,10,11,14,16,7,14]})
     peak = pd.DataFrame({"hour": list(range(24)), "transaction_count": rng.integers(0, 220, 24)})
-    offers = pd.DataFrame({"spend_vnd": [35_747_000], "date": [dates.max()]})
+    offers = pd.DataFrame({
+        "date": [dates.max()],
+        "country": ["VN"],
+        "city": ["Hồ Chí Minh"],
+        "grab_service": ["GrabMart"],
+        "offer_name": ["Khuyến mãi demo"],
+        "gross_sales_vnd": [82_000_000],
+        "net_sales_vnd": [73_800_000],
+        "transaction_count": [286],
+        "spend_vnd": [35_747_000],
+    })
     menu = pd.DataFrame()
-    return DataBundle({
+    tables = {
         "sales_daily": sales, "menu_sales": menu, "offers": offers, "peak_hours": peak,
         "product_scoring": score, "miwi_item_breakdown": miwi_items,
         "miwi_heatmap": miwi_heatmap, "customer_reviews": reviews,
-    }, "Dữ liệu demo tổng hợp – không chứa dữ liệu cá nhân")
+    }
+    # Dữ liệu dự phòng phải có cùng lược đồ cột an toàn như BigQuery.
+    # Nhờ vậy mọi trang vẫn hoạt động khi BigQuery tạm thời gián đoạn.
+    tables = {
+        name: frame.reindex(columns=SAFE_COLUMNS[name])
+        for name, frame in tables.items()
+    }
+    return DataBundle(tables, "Dữ liệu demo tổng hợp – không chứa dữ liệu cá nhân")
 
 
 def load_data(use_demo: bool) -> DataBundle:

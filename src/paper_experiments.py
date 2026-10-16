@@ -190,7 +190,7 @@ def logistic_cross_validation(score: pd.DataFrame, folds: int = 5, seed: int = 4
 
         fit = minimize(objective, np.zeros(x.shape[1]), method="L-BFGS-B")
         probability = expit(x[test] @ fit.x)
-        rows.append([fold + 1, int(test.sum()), _auc(y[test], probability), _average_precision(y[test], probability), bool(fit.success)])
+        rows.append([str(fold + 1), int(test.sum()), _auc(y[test], probability), _average_precision(y[test], probability), bool(fit.success)])
     result = pd.DataFrame(rows, columns=["Fold", "Số quan sát", "AUC", "Average precision", "Hội tụ"])
     result.loc[len(result)] = ["Trung bình", int(result["Số quan sát"].sum()), result.AUC.mean(), result["Average precision"].mean(), result["Hội tụ"].all()]
     return result
