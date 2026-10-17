@@ -511,7 +511,61 @@ elif page == "Cập nhật giá hàng loạt":
                     )
                     if not confirm_all_scope:
                         scope_mask &= False
-                final_mask = status_mask & scope_mask & valid_price_mask
+                base_selection_mask = status_mask & scope_mask & valid_price_mask
+
+                st.markdown("#### Lọc thêm theo khoảng giá hiện tại")
+                use_price_range = st.checkbox(
+                    "Chỉ cập nhật sản phẩm trong một khoảng giá",
+                    value=False,
+                    help=(
+                        "Bộ lọc này kết hợp với trạng thái và phạm vi đã chọn ở trên. "
+                        "Hai đầu khoảng đều được tính."
+                    ),
+                    key=f"bulk_price_use_range_{price_shop_key}",
+                )
+                price_range_valid = True
+                price_range_mask = pd.Series(True, index=price_products.index)
+                if use_price_range:
+                    range_col1, range_col2 = st.columns(2)
+                    minimum_price_thousand = range_col1.number_input(
+                        "Giá từ (nghìn đồng)",
+                        min_value=0,
+                        value=100,
+                        step=10,
+                        format="%d",
+                        key=f"bulk_price_min_range_{price_shop_key}",
+                    )
+                    maximum_price_thousand = range_col2.number_input(
+                        "Giá đến (nghìn đồng)",
+                        min_value=0,
+                        value=300,
+                        step=10,
+                        format="%d",
+                        key=f"bulk_price_max_range_{price_shop_key}",
+                    )
+                    minimum_price = int(minimum_price_thousand) * 1_000
+                    maximum_price = int(maximum_price_thousand) * 1_000
+                    price_range_valid = minimum_price <= maximum_price
+                    if not price_range_valid:
+                        st.error("Giá bắt đầu phải nhỏ hơn hoặc bằng giá kết thúc.")
+                        price_range_mask &= False
+                    else:
+                        price_range_mask = current_price_numeric.between(
+                            minimum_price, maximum_price, inclusive="both"
+                        )
+                        before_range_count = int(base_selection_mask.sum())
+                        after_range_count = int((base_selection_mask & price_range_mask).sum())
+                        st.caption(
+                            f"Đang lọc giá hiện tại từ {minimum_price:,.0f} ₫ đến {maximum_price:,.0f} ₫ "
+                            f"(tính cả hai đầu): còn {after_range_count:,}/{before_range_count:,} sản phẩm "
+                            "trong phạm vi đã chọn."
+                        )
+                else:
+                    st.caption(
+                        "Không bật bộ lọc: mọi mức giá hợp lệ trong trạng thái và phạm vi đã chọn đều được cập nhật."
+                    )
+
+                final_mask = base_selection_mask & price_range_mask
 
                 st.markdown("### 3. Chọn mức điều chỉnh")
                 adjust_col, type_col, value_col, round_col = st.columns(4)
@@ -542,6 +596,8 @@ elif page == "Cập nhật giá hàng loạt":
                 )
 
                 try:
+                    if not price_range_valid:
+                        raise ValueError("Khoảng giá lọc không hợp lệ.")
                     price_review, price_preview = build_bulk_price_review(
                         price_products,
                         final_mask,

@@ -9,7 +9,7 @@
 - Dashboard doanh số, giao dịch và giờ cao điểm.
 - Ma trận ABC–XYZ và danh sách sản phẩm cần ưu tiên rà soát.
 - Kiểm toán trùng tên, mô tả, ảnh mẫu và barcode không hợp lệ; SKU/barcode để trống không bị xem là lỗi đối với sản phẩm hoa làm theo mẫu.
-- Cập nhật giá hàng loạt theo danh mục, nhóm từ khóa, từng sản phẩm hoặc toàn bộ thực đơn; hỗ trợ tăng/giảm theo phần trăm hoặc số tiền, xem trước và chặn mọi lần tăng quá 49% giá hiện tại.
+- Cập nhật giá hàng loạt theo danh mục, nhóm từ khóa, từng sản phẩm hoặc toàn bộ thực đơn; có thể lọc tiếp theo khoảng giá hiện tại (tính cả hai đầu), hỗ trợ tăng/giảm theo phần trăm hoặc số tiền, xem trước và chặn mọi lần tăng quá 49% giá hiện tại.
 - Sao chép sản phẩm giữa hai shop theo trạng thái; mặc định chỉ chọn sản phẩm `AVAILABLE` (đang bán), tải và kiểm tra ảnh CDN cho đúng tập đã lọc, sau đó xuất ZIP tạo sản phẩm cho shop đích.
 - Dùng chung cho nhiều shop theo nguyên tắc một lượt xử lý một ZIP của một StoreID; từ chối gói trộn nhiều shop, tách trạng thái thao tác và gắn StoreID vào tên file xuất.
 - Nhận gói ZIP thực đơn mới nhất từ GrabMerchant, chỉnh sửa trực tiếp trên form hoặc bằng phiếu CSV, kiểm tra thay đổi và tạo lại ZIP đúng cấu trúc để cập nhật hàng loạt.
