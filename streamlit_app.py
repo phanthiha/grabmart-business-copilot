@@ -10,6 +10,7 @@ import streamlit as st
 from src.grab_catalogue import (
     apply_review,
     build_bulk_price_review,
+    build_bulk_status_review,
     build_grab_zip,
     catalogue_audit as audit_grab_package,
     make_review_sheet,
@@ -159,6 +160,7 @@ with st.sidebar:
         "Danh mục ABC–XYZ",
         "Kiểm toán catalogue",
         "Cập nhật giá hàng loạt",
+        "Cập nhật trạng thái hàng loạt",
         "Sao chép sản phẩm giữa shop",
         "Phân tích Menu Sales",
         "Tạo sản phẩm từ bảng giá",
@@ -694,6 +696,196 @@ elif page == "Cập nhật giá hàng loạt":
                                 st.warning(
                                     "Tải ZIP lên GrabMerchant và kiểm tra lại tổng số sản phẩm, giá cũ/giá mới trước khi bấm Áp dụng."
                                 )
+
+elif page == "Cập nhật trạng thái hàng loạt":
+    st.header("Cập nhật trạng thái sản phẩm hàng loạt")
+    st.info(
+        "Tải ZIP thực đơn mới nhất → lọc sản phẩm theo trạng thái, danh mục/nhóm và khoảng giá → "
+        "chọn trạng thái mới → kiểm tra → xuất ZIP. Ứng dụng không tự thay đổi dữ liệu trên GrabMerchant."
+    )
+    st.warning(
+        "Ẩn, hết hàng hoặc ngừng bán có thể làm sản phẩm biến mất khỏi gian hàng. "
+        "Hãy kiểm tra bảng xem trước và số lượng sản phẩm trước khi tạo ZIP."
+    )
+    status_menu_upload = st.file_uploader(
+        "1. Tải ZIP thực đơn mới nhất từ GrabMerchant",
+        type=["zip"],
+        key="bulk_status_menu_zip",
+    )
+    if status_menu_upload is not None:
+        try:
+            status_package = read_grab_zip(status_menu_upload.getvalue())
+            status_products = status_package.products.copy()
+        except ValueError as exc:
+            st.error(str(exc))
+        else:
+            status_shop_key = re.sub(r"[^A-Za-z0-9_-]+", "_", status_package.store_id)
+            status_price_numeric = pd.to_numeric(status_products["*Price"], errors="coerce")
+            valid_status_price = status_price_numeric.ge(0)
+            s1, s2, s3, s4 = st.columns(4)
+            s1.metric("Shop", status_package.store_id)
+            s2.metric("Tổng sản phẩm", f"{len(status_products):,}")
+            s3.metric("Danh mục", f"{status_products['*GrabCategoryName'].nunique():,}")
+            s4.metric("Giá đọc được", f"{valid_status_price.sum():,}/{len(status_products):,}")
+
+            st.markdown("### 2. Lọc sản phẩm cần thay đổi")
+            status_labels = {
+                "AVAILABLE": "Đang bán",
+                "UNAVAILABLE_TODAY": "Hết hàng hôm nay",
+                "UNAVAILABLE_PERMANENTLY": "Ngừng bán",
+                "HIDDEN": "Ẩn",
+            }
+            existing_statuses = sorted(status_products["*AvailableStatus"].astype(str).unique())
+            source_statuses = st.multiselect(
+                "Trạng thái hiện tại",
+                existing_statuses,
+                default=["AVAILABLE"] if "AVAILABLE" in existing_statuses else existing_statuses,
+                format_func=lambda value: f"{status_labels.get(value, value)} ({value})",
+                help="Mặc định chỉ thao tác các sản phẩm đang bán.",
+                key=f"bulk_status_sources_{status_shop_key}",
+            )
+            status_source_mask = status_products["*AvailableStatus"].isin(source_statuses)
+            status_scope_mode = st.radio(
+                "Cách chọn phạm vi",
+                ["Theo danh mục", "Theo nhóm/từ khóa", "Toàn bộ thực đơn"],
+                horizontal=True,
+                key=f"bulk_status_scope_{status_shop_key}",
+            )
+            status_scope_mask = pd.Series(False, index=status_products.index)
+            if status_scope_mode == "Theo danh mục":
+                status_category_options = sorted(
+                    status_products.loc[status_source_mask, "*GrabCategoryName"].astype(str).unique()
+                )
+                status_categories = st.multiselect(
+                    "Chọn một hoặc nhiều danh mục",
+                    status_category_options,
+                    key=f"bulk_status_categories_{status_shop_key}",
+                )
+                status_scope_mask = status_products["*GrabCategoryName"].isin(status_categories)
+            elif status_scope_mode == "Theo nhóm/từ khóa":
+                status_keywords_text = st.text_input(
+                    "Nhập từ khóa trong tên sản phẩm, cách nhau bằng dấu phẩy",
+                    placeholder="Ví dụ: hoa ly, lan hồ điệp",
+                    key=f"bulk_status_keywords_{status_shop_key}",
+                )
+                status_keywords = [word.strip() for word in status_keywords_text.split(",") if word.strip()]
+                if status_keywords:
+                    status_pattern = "|".join(re.escape(word) for word in status_keywords)
+                    status_scope_mask = status_products["*ItemName"].astype(str).str.contains(
+                        status_pattern, case=False, na=False, regex=True
+                    )
+            else:
+                confirm_status_all = st.checkbox(
+                    "Tôi hiểu phạm vi này có thể áp dụng cho toàn bộ thực đơn",
+                    key=f"bulk_status_all_confirm_{status_shop_key}",
+                )
+                status_scope_mask = pd.Series(bool(confirm_status_all), index=status_products.index)
+
+            st.markdown("#### Lọc theo khoảng giá hiện tại")
+            status_range_col1, status_range_col2 = st.columns(2)
+            status_min_thousand = status_range_col1.number_input(
+                "Giá từ (nghìn đồng)",
+                min_value=0,
+                value=0,
+                step=10,
+                format="%d",
+                key=f"bulk_status_min_price_{status_shop_key}",
+            )
+            status_max_thousand = status_range_col2.number_input(
+                "Giá đến (nghìn đồng)",
+                min_value=0,
+                value=100,
+                step=10,
+                format="%d",
+                key=f"bulk_status_max_price_{status_shop_key}",
+            )
+            status_min_price = int(status_min_thousand) * 1_000
+            status_max_price = int(status_max_thousand) * 1_000
+            status_range_valid = status_min_price <= status_max_price
+            if not status_range_valid:
+                st.error("Giá bắt đầu phải nhỏ hơn hoặc bằng giá kết thúc.")
+                status_range_mask = pd.Series(False, index=status_products.index)
+            else:
+                status_range_mask = status_price_numeric.between(
+                    status_min_price, status_max_price, inclusive="both"
+                )
+
+            status_selection_mask = (
+                status_source_mask & status_scope_mask & valid_status_price & status_range_mask
+            )
+            st.caption(
+                f"Khoảng {status_min_price:,.0f} ₫–{status_max_price:,.0f} ₫, tính cả hai đầu: "
+                f"đang chọn {int(status_selection_mask.sum()):,} sản phẩm trước khi loại các món đã ở trạng thái đích."
+            )
+
+            st.markdown("### 3. Chọn trạng thái mới")
+            target_status = st.selectbox(
+                "Trạng thái áp dụng",
+                ["UNAVAILABLE_TODAY", "HIDDEN", "UNAVAILABLE_PERMANENTLY", "AVAILABLE"],
+                format_func=lambda value: f"{status_labels[value]} ({value})",
+                key=f"bulk_status_target_{status_shop_key}",
+            )
+            try:
+                if not status_range_valid:
+                    raise ValueError("Khoảng giá lọc không hợp lệ.")
+                status_review, status_preview = build_bulk_status_review(
+                    status_products, status_selection_mask, target_status
+                )
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                st.markdown("### 4. Kiểm tra trước khi xuất")
+                if status_preview.empty:
+                    st.info(
+                        "Chưa có sản phẩm phù hợp hoặc các sản phẩm đã ở trạng thái đích. "
+                        "Hãy kiểm tra lại danh mục, từ khóa và khoảng giá."
+                    )
+                else:
+                    st.metric("Sản phẩm sẽ đổi trạng thái", f"{len(status_preview):,}")
+                    st.dataframe(
+                        status_preview,
+                        width="stretch",
+                        hide_index=True,
+                        column_config={
+                            "Giá hiện tại": st.column_config.NumberColumn(format="%,.0f ₫"),
+                        },
+                    )
+                    status_errors = validate_review(status_package, status_review)
+                    if not status_errors.empty:
+                        st.error(f"Có {len(status_errors):,} lỗi; chưa thể xuất ZIP.")
+                        st.dataframe(status_errors, width="stretch", hide_index=True)
+                    else:
+                        updated_statuses, status_change_log = apply_review(status_package, status_review)
+                        st.download_button(
+                            "Tải bảng xem trước trạng thái CSV",
+                            status_preview.to_csv(index=False).encode("utf-8-sig"),
+                            "grab_bulk_status_preview.csv",
+                            "text/csv",
+                        )
+                        status_confirmed = st.checkbox(
+                            f"Tôi xác nhận đổi {len(status_preview):,} sản phẩm sang "
+                            f"{status_labels[target_status]}",
+                            key=f"bulk_status_confirm_{status_shop_key}",
+                        )
+                        if status_confirmed:
+                            status_zip = build_grab_zip(status_package, updated_statuses)
+                            status_stem = status_package.csv_name.rsplit(".", 1)[0]
+                            st.download_button(
+                                "Tải ZIP cập nhật trạng thái GrabMerchant",
+                                status_zip,
+                                f"{status_stem}_{status_shop_key}_bulk_status_updated.zip",
+                                "application/zip",
+                                type="primary",
+                            )
+                            st.download_button(
+                                "Tải nhật ký thay đổi trạng thái",
+                                status_change_log.to_csv(index=False).encode("utf-8-sig"),
+                                f"{status_stem}_{status_shop_key}_bulk_status_change_log.csv",
+                                "text/csv",
+                            )
+                            st.warning(
+                                "Tải ZIP lên GrabMerchant và kiểm tra lại số sản phẩm cùng trạng thái mới trước khi bấm Áp dụng."
+                            )
 
 elif page == "Sao chép sản phẩm giữa shop":
     st.header("Sao chép sản phẩm giữa hai shop GrabMerchant")

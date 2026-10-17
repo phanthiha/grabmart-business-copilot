@@ -289,6 +289,34 @@ def build_bulk_price_review(
     return review, preview
 
 
+def build_bulk_status_review(
+    products: pd.DataFrame,
+    mask: pd.Series,
+    target_status: str,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Lập phiếu UPDATE trạng thái và bảng xem trước, không tự thay đổi catalogue."""
+    if target_status not in VALID_STATUSES:
+        raise ValueError("Trạng thái sản phẩm đích không hợp lệ.")
+
+    effective_mask = mask & products["*AvailableStatus"].astype(str).ne(target_status)
+    selected = products.loc[effective_mask].copy()
+    review = make_review_sheet(products, effective_mask, "Cập nhật trạng thái hàng loạt")
+    if selected.empty:
+        return review, pd.DataFrame()
+
+    review["Action"] = "UPDATE"
+    review["ProposedStatus"] = target_status
+    preview = pd.DataFrame({
+        "ItemID": selected[ITEM_ID].values,
+        "Tên sản phẩm": selected["*ItemName"].values,
+        "Danh mục": selected["*GrabCategoryName"].values,
+        "Giá hiện tại": pd.to_numeric(selected["*Price"], errors="coerce").values,
+        "Trạng thái hiện tại": selected["*AvailableStatus"].values,
+        "Trạng thái mới": target_status,
+    })
+    return review, preview
+
+
 def read_review_csv(raw: bytes) -> pd.DataFrame:
     review = pd.read_csv(io.StringIO(_decode_csv(raw)), dtype=str, keep_default_na=False)
     required = {"ItemID", "StoreID", "Action", *EDITABLE_FIELDS}
